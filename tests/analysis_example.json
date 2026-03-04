@@ -1,0 +1,43 @@
+{
+  "video": {
+    "id": "hash_or_platform_id",
+    "source": {"type": "youtube|url|local", "uri": "..."},
+    "local_path": "...",
+    "duration_sec": 1234.5,
+    "fps": 29.97,
+    "resolution": {"w": 1920, "h": 1080}
+  },
+  "timeline": {
+    "chapters": [
+      {"start": 0.0, "end": 120.3, "title": "…", "summary": "…", "key_entities": ["..."]}
+    ],
+    "events": [
+      {
+        "start": 33.2, "end": 41.8,
+        "text": "事件描述",
+        "evidence": {
+          "asr_segment_ids": ["seg_12", "seg_13"],
+          "frame_ids": ["f_0032"]
+        }
+      }
+    ]
+  },
+  "asr": {
+    "segments": [
+      {"id": "seg_12", "start": 33.2, "end": 35.1, "text": "...", "confidence": 0.92}
+    ]
+  },
+  "frames": {
+    "items": [
+      {"id": "f_0032", "ts": 34.0, "path": "frames/f_0032.jpg", "caption": "..."}
+    ],
+    "strategy": {"type": "scene|fps", "params": {"scene_threshold": 0.3, "max_frames": 120}}
+  },
+  "highlights": [
+    {"start": 330.0, "end": 372.0, "reason": "信息密度高/关键结论", "output_path": "artifacts/h1.mp4"}
+  ],
+  "rag": {
+    "index_path": "index/...",
+    "items_count": 1234
+  }
+}
