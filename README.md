@@ -111,3 +111,6 @@ curl -X POST http://localhost:9000/analysis \
 ```
 
 5. 端到端 Demo 脚本
+
+6. Dependencies
+- yt-dlp
