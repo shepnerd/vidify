@@ -4,14 +4,14 @@ from openai import OpenAI
 from agent.models.vllm_openai_client import make_client
 from agent.models.direct_model_loader import make_direct_client
 
-def _resize_limit(img: Image.Image, max_w=512, max_h=256) -> Image.Image:
+def _resize_limit(img: Image.Image, max_w=256, max_h=144) -> Image.Image:
     w, h = img.size
     scale = min(max_w / w, max_h / h, 1.0)
     if scale < 1.0:
         img = img.resize((int(w * scale), int(h * scale)), Image.BICUBIC)
     return img
 
-def _img_to_data_url(path: str, max_w=512, max_h=256, fmt="JPEG", quality=85) -> str:
+def _img_to_data_url(path: str, max_w=256, max_h=144, fmt="JPEG", quality=85) -> str:
     img = Image.open(path).convert("RGB")
     img = _resize_limit(img, max_w=max_w, max_h=max_h)
     buf = io.BytesIO()
@@ -21,7 +21,7 @@ def _img_to_data_url(path: str, max_w=512, max_h=256, fmt="JPEG", quality=85) ->
 
 def caption_frames(frames, model_name: str, base_url: str,
                    max_frames: int = 128, batch_size: int = 8,
-                   max_w: int = 512, max_h: int = 256,
+                   max_w: int = 256, max_h: int = 144,
                    direct_model: bool = False, model_path: str = None, tokenizer_path: str = None) -> "FrameSet":
     """
     frames: FrameSet(items=[FrameItem...])

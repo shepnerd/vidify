@@ -7,7 +7,7 @@ from agent.skills.audio_extract import extract_audio
 from agent.skills.asr import transcribe
 from agent.skills.timeline_builder import build_timeline
 from agent.skills.persist import save_analysis
-from agent.schemas import FrameStrategy
+from agent.schemas import FrameStrategy, Transcript
 
 def wf_detailed(asset, llm_base_url: str, llm_model: str,
                 max_frames: int = 128,
@@ -26,7 +26,11 @@ def wf_detailed(asset, llm_base_url: str, llm_model: str,
                             direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
 
     audio = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
-    transcript = transcribe(audio, os.path.join(asset.cache_dir, "asr.json"), model_size=whisper_model)
+    if whisper_model:
+        transcript = transcribe(audio, os.path.join(asset.cache_dir, "asr.json"), model_size=whisper_model)
+    else:
+        # Skip ASR
+        transcript = Transcript(segments=[], language=None)
 
     timeline = build_timeline(meta, transcript, frames, llm_model, llm_base_url,
                               direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)

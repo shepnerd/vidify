@@ -6,6 +6,11 @@ from transformers import AutoTokenizer
 
 class DirectModelLoader:
     def __init__(self, model_path: str, tokenizer_path: str = None, **kwargs):
+        # Set default memory utilization to avoid OOM
+        kwargs.setdefault('gpu_memory_utilization', 0.3)  # Increase to allow KV cache
+        kwargs.setdefault('max_model_len', 1024)  # Reduce context length to save KV cache memory
+        kwargs.setdefault('enforce_eager', True)  # Use eager mode to save memory
+        kwargs.setdefault('max_num_seqs', 1)  # Limit concurrent sequences
         self.model = LLM(model=model_path, **kwargs)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path or model_path)
 
