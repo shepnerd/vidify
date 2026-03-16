@@ -1,0 +1,41 @@
+# Ignore image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.webp
+*.svg
+
+# Ignore video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.3gp
+
+# Ignore audio files (if any)
+*.mp3
+*.wav
+*.flac
+*.aac
+
+# Cache directories (if not already ignored)
+cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
