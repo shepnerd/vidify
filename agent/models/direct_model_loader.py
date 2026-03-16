@@ -4,6 +4,9 @@ from PIL import Image
 from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer
 
+# Global cache for loaded models to avoid reloading
+_MODEL_CACHE = {}
+
 class DirectModelLoader:
     def __init__(self, model_path: str, tokenizer_path: str = None, **kwargs):
         # Set default memory utilization to avoid OOM
@@ -11,8 +14,14 @@ class DirectModelLoader:
         kwargs.setdefault('max_model_len', 1024)  # Reduce context length to save KV cache memory
         kwargs.setdefault('enforce_eager', True)  # Use eager mode to save memory
         kwargs.setdefault('max_num_seqs', 1)  # Limit concurrent sequences
-        self.model = LLM(model=model_path, **kwargs)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path or model_path)
+        
+        cache_key = (model_path, tokenizer_path, frozenset(kwargs.items()))
+        if cache_key in _MODEL_CACHE:
+            self.model, self.tokenizer = _MODEL_CACHE[cache_key]
+        else:
+            self.model = LLM(model=model_path, **kwargs)
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path or model_path)
+            _MODEL_CACHE[cache_key] = (self.model, self.tokenizer)
 
     def _img_to_data_url(self, path: str, max_w=512, max_h=256, fmt="JPEG", quality=85) -> str:
         img = Image.open(path).convert("RGB")
