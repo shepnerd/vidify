@@ -28,6 +28,10 @@ class AnalyzeReq(BaseModel):
     llm_base_url: str = "http://localhost:8000/v1"
     llm_model: str = "qwen-vl"
 
+    direct_model: bool = False
+    model_path: str = "/models/qwen-vl"
+    tokenizer_path: Optional[str] = None
+
     max_frames: int = Field(default=128, ge=1, le=128)
     whisper_model: str = "small"
 
@@ -40,6 +44,10 @@ class IndexReq(BaseModel):
     # 如果 analysis.json 不存在或缺少 asr/frames，会自动先跑 detailed（需要下面两个参数）
     llm_base_url: str = "http://localhost:8000/v1"
     llm_model: str = "qwen-vl"
+
+    direct_model: bool = False
+    model_path: str = "/models/qwen-vl"
+    tokenizer_path: Optional[str] = None
 
     # embeddings（vLLM OpenAI-compatible 支持 /v1/embeddings）[1]
     embed_base_url: str = "http://localhost:8000/v1"
@@ -59,6 +67,10 @@ class AskReq(BaseModel):
     llm_base_url: str = "http://localhost:8000/v1"
     llm_model: str = "qwen-vl"
 
+    direct_model: bool = False
+    model_path: str = "/models/qwen-vl"
+    tokenizer_path: Optional[str] = None
+
     embed_base_url: str = "http://localhost:8000/v1"
     embed_model: str = "qwen-embed"
 
@@ -70,6 +82,10 @@ class HighlightsReq(BaseModel):
 
     llm_base_url: str = "http://localhost:8000/v1"
     llm_model: str = "qwen-vl"
+
+    direct_model: bool = False
+    model_path: str = "/models/qwen-vl"
+    tokenizer_path: Optional[str] = None
 
     max_clips: int = Field(default=5, ge=1, le=20)
     also_make_reel: bool = True
@@ -116,7 +132,10 @@ def analyze(req: AnalyzeReq):
             out = wf_detailed(
                 asset, req.llm_base_url, req.llm_model,
                 max_frames=req.max_frames,
-                whisper_model=req.whisper_model
+                whisper_model=req.whisper_model,
+                direct_model=req.direct_model,
+                model_path=req.model_path,
+                tokenizer_path=req.tokenizer_path
             )
         return out
     except Exception as e:
@@ -135,7 +154,10 @@ def index(req: IndexReq):
             asset,
             llm_base_url=req.llm_base_url, llm_model=req.llm_model,
             embed_base_url=req.embed_base_url, embed_model=req.embed_model,
-            chunk_sec=req.chunk_sec
+            chunk_sec=req.chunk_sec,
+            direct_model=req.direct_model,
+            model_path=req.model_path,
+            tokenizer_path=req.tokenizer_path
         )
         return {"rag": rag, "cache_dir": asset.cache_dir}
     except Exception as e:
@@ -153,7 +175,10 @@ def ask(req: AskReq):
             asset, req.question,
             llm_base_url=req.llm_base_url, llm_model=req.llm_model,
             embed_base_url=req.embed_base_url, embed_model=req.embed_model,
-            top_k=req.top_k
+            top_k=req.top_k,
+            direct_model=req.direct_model,
+            model_path=req.model_path,
+            tokenizer_path=req.tokenizer_path
         )
         return out
     except Exception as e:
@@ -171,7 +196,10 @@ def highlights(req: HighlightsReq):
             asset,
             llm_base_url=req.llm_base_url, llm_model=req.llm_model,
             max_clips=req.max_clips,
-            also_make_reel=req.also_make_reel
+            also_make_reel=req.also_make_reel,
+            direct_model=req.direct_model,
+            model_path=req.model_path,
+            tokenizer_path=req.tokenizer_path
         )
         return out
     except Exception as e:

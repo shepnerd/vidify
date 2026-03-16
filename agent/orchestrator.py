@@ -9,20 +9,32 @@ def run(asset, mode: str, cfg: dict) -> dict:
         return wf_analyze(asset, mode,
                           llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                           max_frames=cfg.get("max_frames", 128),
-                          whisper_model=cfg.get("whisper_model", "small"))
+                          whisper_model=cfg.get("whisper_model", "small"),
+                          direct_model=cfg.get("direct_model", False),
+                          model_path=cfg.get("model_path"),
+                          tokenizer_path=cfg.get("tokenizer_path"))
     if mode == "index":
         return wf_index(asset,
                         llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                         embed_base_url=cfg["embed_base_url"], embed_model=cfg["embed_model"],
-                        chunk_sec=cfg.get("chunk_sec", 20))
+                        chunk_sec=cfg.get("chunk_sec", 20),
+                        direct_model=cfg.get("direct_model", False),
+                        model_path=cfg.get("model_path"),
+                        tokenizer_path=cfg.get("tokenizer_path"))
     if mode == "ask":
         return wf_ask(asset, cfg["question"],
                       llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                       embed_base_url=cfg["embed_base_url"], embed_model=cfg["embed_model"],
-                      top_k=cfg.get("top_k", 5))
+                      top_k=cfg.get("top_k", 5),
+                      direct_model=cfg.get("direct_model", False),
+                      model_path=cfg.get("model_path"),
+                      tokenizer_path=cfg.get("tokenizer_path"))
     if mode == "highlights":
         return wf_highlights(asset,
                              llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                              max_clips=cfg.get("max_clips", 5),
-                             also_make_reel=cfg.get("also_make_reel", True))
+                             also_make_reel=cfg.get("also_make_reel", True),
+                             direct_model=cfg.get("direct_model", False),
+                             model_path=cfg.get("model_path"),
+                             tokenizer_path=cfg.get("tokenizer_path"))
     raise ValueError(f"Unknown mode: {mode}")

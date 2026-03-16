@@ -8,14 +8,17 @@ from agent.workflows.detailed import wf_detailed
 def wf_index(asset,
              llm_base_url: str, llm_model: str,
              embed_base_url: str, embed_model: str,
-             chunk_sec: int = 20) -> dict:
+             chunk_sec: int = 20,
+             direct_model: bool = False,
+             model_path: str = None,
+             tokenizer_path: str = None) -> dict:
     try:
         analysis = load_analysis(asset.cache_dir)
     except Exception:
-        analysis = wf_detailed(asset, llm_base_url, llm_model)
+        analysis = wf_detailed(asset, llm_base_url, llm_model, direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
 
     if not analysis.get("frames") or not analysis.get("asr"):
-        analysis = wf_detailed(asset, llm_base_url, llm_model)
+        analysis = wf_detailed(asset, llm_base_url, llm_model, direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
 
     frames = load_frames(analysis["frames"])
     transcript = load_transcript(analysis["asr"])

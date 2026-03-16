@@ -15,6 +15,10 @@ def main():
     ap.add_argument("--embed-base-url", default="http://localhost:8000/v1")
     ap.add_argument("--embed-model", default="qwen-embed")
 
+    ap.add_argument("--direct-model", action="store_true", help="Use direct model loading instead of API")
+    ap.add_argument("--model-path", default="/models/qwen-vl", help="Path to the model for direct loading")
+    ap.add_argument("--tokenizer-path", default=None, help="Path to tokenizer, defaults to model-path")
+
     ap.add_argument("--question", default=None)
     ap.add_argument("--max-frames", type=int, default=128)
     ap.add_argument("--chunk-sec", type=int, default=20)

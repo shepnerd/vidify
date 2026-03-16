@@ -28,6 +28,16 @@ vllm serve /models/qwen-vl \
   --allowed-local-media-path /abs/path/to/cache
 ```
 
+## 2.5 直接加载模型（可选）
+如果你不想启动外部vLLM服务器，可以使用直接加载模型模式。需要在requirements.txt中安装vllm、transformers等依赖。
+
+命令行使用：
+```bash
+python -m agent.main --source-type youtube --uri "https://www.youtube.com/watch?v=XXXX" --mode detailed --direct-model --model-path /path/to/model --cache-root ./cache
+```
+
+API使用：在请求中设置 `"direct_model": true, "model_path": "/path/to/model"` 等。
+
 ## 3. Docker Installation
 ```bash
 docker build -t video-agent:0.1 .
