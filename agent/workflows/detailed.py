@@ -2,7 +2,7 @@
 import os
 from agent.skills.video_probe import probe_video
 from agent.skills.frame_sampler import sample_frames
-from agent.skills.vision_caption import caption_frames
+from agent.skills.vision_caption import caption_frames, supports_video, caption_video_as_frameset
 from agent.skills.audio_extract import extract_audio
 from agent.skills.asr import transcribe
 from agent.skills.timeline_builder import build_timeline
@@ -18,12 +18,16 @@ def wf_detailed(asset, llm_base_url: str, llm_model: str,
     meta = probe_video(asset.local_path)
     asset.metadata = meta
 
-    frames = sample_frames(
-        asset, os.path.join(asset.cache_dir, "frames"),
-        FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
-    )
-    frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
-                            direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
+    if supports_video(llm_model):
+        frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
+                                           direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
+    else:
+        frames = sample_frames(
+            asset, os.path.join(asset.cache_dir, "frames"),
+            FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+        )
+        frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
+                                direct_model=direct_model, model_path=model_path, tokenizer_path=tokenizer_path)
 
     audio = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
     if whisper_model:
