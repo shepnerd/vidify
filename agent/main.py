@@ -7,7 +7,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source-type", required=True, choices=["youtube", "url", "local"])
     ap.add_argument("--uri", required=True)
-    ap.add_argument("--mode", required=True, choices=["quick", "detailed", "highlights", "index", "ask"])
+    ap.add_argument("--mode", required=True, choices=["quick", "detailed", "highlights", "index", "ask", "report"])
     ap.add_argument("--cache-root", default="./cache")
 
     ap.add_argument("--llm-base-url", default="http://localhost:8000/v1")
@@ -23,6 +23,10 @@ def main():
     ap.add_argument("--max-frames", type=int, default=128)
     ap.add_argument("--chunk-sec", type=int, default=20)
     ap.add_argument("--top-k", type=int, default=5)
+    ap.add_argument("--include-web-search", action="store_true", help="Include web search enhancement in analysis")
+    ap.add_argument("--analysis-type", default="brief", choices=["brief", "detailed"], help="Analysis type for report generation")
+    ap.add_argument("--google-api-key", help="Google Custom Search API key for web search")
+    ap.add_argument("--google-search-engine-id", help="Google Custom Search Engine ID for web search")
     args = ap.parse_args()
 
     asset = load_video(args.source_type, args.uri, args.cache_root)

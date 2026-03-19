@@ -3,6 +3,7 @@ from agent.workflows.analyze import wf_analyze
 from agent.workflows.index import wf_index
 from agent.workflows.ask import wf_ask
 from agent.workflows.highlights import wf_highlights
+from agent.workflows.report import generate_report
 
 def run(asset, mode: str, cfg: dict) -> dict:
     if mode in ("brief", "detailed"):
@@ -12,7 +13,10 @@ def run(asset, mode: str, cfg: dict) -> dict:
                           whisper_model=cfg.get("whisper_model", "small"),
                           direct_model=cfg.get("direct_model", False),
                           model_path=cfg.get("model_path"),
-                          tokenizer_path=cfg.get("tokenizer_path"))
+                          tokenizer_path=cfg.get("tokenizer_path"),
+                          include_web_search=cfg.get("include_web_search", False),
+                          google_api_key=cfg.get("google_api_key"),
+                          google_search_engine_id=cfg.get("google_search_engine_id"))
     if mode == "index":
         return wf_index(asset,
                         llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
@@ -37,4 +41,14 @@ def run(asset, mode: str, cfg: dict) -> dict:
                              direct_model=cfg.get("direct_model", False),
                              model_path=cfg.get("model_path"),
                              tokenizer_path=cfg.get("tokenizer_path"))
+    if mode == "report":
+        return generate_report(asset,
+                               analysis_type=cfg.get("analysis_type", "brief"),
+                               include_web_search=cfg.get("include_web_search", True),
+                               llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
+                               direct_model=cfg.get("direct_model", False),
+                               model_path=cfg.get("model_path"),
+                               tokenizer_path=cfg.get("tokenizer_path"),
+                               google_api_key=cfg.get("google_api_key"),
+                               google_search_engine_id=cfg.get("google_search_engine_id"))
     raise ValueError(f"Unknown mode: {mode}")
