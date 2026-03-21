@@ -11,10 +11,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from agent.skills.video_io import load_video
+from agent.extensions.skills.video_io import load_video
 from agent.workflows.highlights import wf_highlights
 
-from agent.skills.persist import load_analysis
+from agent.extensions.skills.persist import load_analysis
 
 def main():
     parser = argparse.ArgumentParser(description="Test highlights workflow.")

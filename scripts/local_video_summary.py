@@ -11,7 +11,7 @@ import sys
 # Add the parent directory to the Python path to import agent modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from agent.skills.video_io import load_video
+from agent.extensions.skills.video_io import load_video
 from agent.workflows.detailed import wf_detailed
 from agent.workflows.brief import wf_brief
 

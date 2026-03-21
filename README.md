@@ -1,13 +1,14 @@
 # VidCopilot
 
 一个视频处理/分析/理解 Agent：
-- 输入：YouTube URL（优先），后续可扩展任意 URL、本地视频
+- 输入：YouTube URL（优先），后续可扩展任意 URL、本地视频、直播流
 - 处理：下载缓存、ffmpeg 解码、场景切分抽关键帧（默认<=128）、音频提取、ASR
-- 理解：关键帧 caption、多段结构化时间线（chapters/events）
+- 理解：关键帧 caption、多段结构化时间线（chapters/events）、OCR、情感分析、对象检测
 - 检索：帧描述+ASR+元数据一起入库，FAISS 检索 + LLM 回答
 - 编辑：高光检测，支持 clips 分段导出 + reel 合集拼接
 - **深度搜索**：集成 Google Custom Search API，提供网络上下文增强
 - **报告生成**：整合多源分析结果，生成综合视频分析报告
+- **新增技能**：OCR（文本提取）、情感分析、对象检测、翻译、批量处理、自定义摘要、实时流处理
 
 ## 1. 依赖
 - 本机：ffmpeg、Python 3.11+
@@ -136,11 +137,45 @@ python demo_multi_region_search.py
 
 此演示脚本会自动检测您的网络环境并展示相应的搜索功能。
 
-## 4. Docker Installation
+## 安装指南
+
+### 一键安装
+运行 `./setup.sh` 自动安装依赖和配置环境。
+
+### 手动安装
+1. 安装系统依赖：ffmpeg, Python 3.11+
+2. `pip install -r requirements.txt`
+3. 下载模型并配置环境变量。
+
+### Docker
 ```bash
-docker build -t video-agent:0.1 .
-docker run --rm -p 9000:9000 -v $(pwd)/cache:/app/cache video-agent:0.1
+docker build -t vidcopilot .
+docker run -p 9000:9000 vidcopilot
 ```
+
+### Docker Compose
+```bash
+docker-compose up
+```
+
+### PyPI
+```bash
+pip install vidcopilot
+vidcopilot analyze youtube https://... --mode detailed
+```
+
+## 入门教程
+1. 启动vLLM服务器。
+2. 运行 `python agent/main.py analyze youtube <URL> --mode detailed`。
+3. 或访问 `http://localhost:9000` 使用GUI。
+
+## 常见问题
+- 模型加载失败：检查vLLM配置。
+- 网络问题：配置代理或使用本地模式。
+
+## 示例用例
+- 分析YouTube视频：`vidcopilot analyze youtube <URL>`
+- 批量处理：使用batch_processing技能。
 
 ## 5. API用法
 Analyze（detailed）
@@ -220,5 +255,25 @@ curl -X POST http://localhost:9000/analysis \
 
 6. 端到端 Demo 脚本
 
-7. Dependencies
-- yt-dlp
+## 架构图
+
+```
+VidCopilot Architecture
+├── agent/
+│   ├── core/          # 核心编排和模式
+│   ├── extensions/    # 扩展技能和工作流
+│   │   ├── skills/    # 技能模块 (ASR, OCR, etc.)
+│   │   ├── workflows/ # 工作流 (analyze, index, etc.)
+│   │   ├── models/    # 模型加载器
+│   │   ├── storage/   # 存储和持久化
+│   │   └── utils/     # 工具函数
+│   ├── config.py      # 配置管理
+│   └── main.py        # CLI入口
+├── server/            # FastAPI服务器 (/docs for Swagger)
+├── tests/             # 单元和集成测试
+└── scripts/           # 演示脚本
+```
+
+## API文档
+
+启动服务器后，访问 `http://localhost:9000/docs` 查看Swagger UI。

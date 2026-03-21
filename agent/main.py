@@ -1,38 +1,51 @@
-# agent/main.py
-import argparse
-from agent.skills.video_io import load_video
-from agent.orchestrator import run
+import click
+from agent.extensions.skills.video_io import load_video
+from agent.core.orchestrator import run
+from agent.config import load_config, get_default_config
+import logging
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--source-type", required=True, choices=["youtube", "url", "local"])
-    ap.add_argument("--uri", required=True)
-    ap.add_argument("--mode", required=True, choices=["quick", "detailed", "highlights", "index", "ask", "report"])
-    ap.add_argument("--cache-root", default="./cache")
+logging.basicConfig(level=logging.INFO)
 
-    ap.add_argument("--llm-base-url", default="http://localhost:8000/v1")
-    ap.add_argument("--llm-model", default="qwen-vl")
-    ap.add_argument("--embed-base-url", default="http://localhost:8000/v1")
-    ap.add_argument("--embed-model", default="qwen-embed")
+@click.group()
+@click.option('--config', default='config.yaml', help='Path to config file')
+@click.pass_context
+def cli(ctx, config):
+    ctx.ensure_object(dict)
+    ctx.obj['config'] = {**get_default_config(), **load_config(config)}
 
-    ap.add_argument("--direct-model", action="store_true", help="Use direct model loading instead of API")
-    ap.add_argument("--model-path", default="/models/qwen-vl", help="Path to the model for direct loading")
-    ap.add_argument("--tokenizer-path", default=None, help="Path to tokenizer, defaults to model-path")
+@cli.command()
+@click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
+@click.argument('uri')
+@click.option('--mode', default='detailed', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']))
+@click.option('--cache-root', default='./cache')
+@click.option('--question', default=None)
+@click.option('--max-frames', type=int, default=128)
+@click.option('--interactive', is_flag=True, help='Interactive mode')
+@click.pass_context
+def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, interactive):
+    """Analyze a video."""
+    cfg = ctx.obj['config']
+    cfg.update({
+        'source_type': source_type,
+        'uri': uri,
+        'mode': mode,
+        'cache_root': cache_root,
+        'question': question,
+        'max_frames': max_frames
+    })
 
-    ap.add_argument("--question", default=None)
-    ap.add_argument("--max-frames", type=int, default=128)
-    ap.add_argument("--chunk-sec", type=int, default=20)
-    ap.add_argument("--top-k", type=int, default=5)
-    ap.add_argument("--include-web-search", action="store_true", help="Include web search enhancement in analysis")
-    ap.add_argument("--analysis-type", default="brief", choices=["brief", "detailed"], help="Analysis type for report generation")
-    ap.add_argument("--google-api-key", help="Google Custom Search API key for web search")
-    ap.add_argument("--google-search-engine-id", help="Google Custom Search Engine ID for web search")
-    args = ap.parse_args()
+    if interactive:
+        # Interactive mode: prompt for inputs
+        cfg['uri'] = click.prompt('Video URI', default=cfg['uri'])
+        cfg['mode'] = click.prompt('Mode', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']), default=cfg['mode'])
 
-    asset = load_video(args.source_type, args.uri, args.cache_root)
-    cfg = vars(args)
-    out = run(asset, args.mode, cfg)
-    print(out)
+    with click.progressbar(length=100, label='Processing') as bar:
+        asset = load_video(source_type, uri, cache_root)
+        bar.update(20)
+        result = run(asset, mode, cfg)
+        bar.update(80)
+        click.echo(result)
+        bar.update(100)
 
 if __name__ == "__main__":
-    main()
+    cli()

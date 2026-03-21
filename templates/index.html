@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VidCopilot GUI</title>
+</head>
+<body>
+    <h1>Video Analysis Tool</h1>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <label for="file">Upload Video:</label>
+        <input type="file" name="file" id="file" required><br><br>
+        <label for="mode">Mode:</label>
+        <select name="mode" id="mode">
+            <option value="detailed">Detailed</option>
+            <option value="quick">Quick</option>
+            <option value="highlights">Highlights</option>
+        </select><br><br>
+        <input type="submit" value="Analyze">
+    </form>
+</body>
+</html>

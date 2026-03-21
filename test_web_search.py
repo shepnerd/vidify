@@ -6,7 +6,7 @@ import os
 import sys
 sys.path.append('/mnt/shared-storage-gpfs2/sfteval/wy/vidcopilot')
 
-from agent.skills.web_search import web_search, deep_search_enhance, is_google_accessible
+from agent.extensions.skills.web_search import web_search, deep_search_enhance, is_google_accessible
 
 def test_network_detection():
     """Test network connectivity detection"""

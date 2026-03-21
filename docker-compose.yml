@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  vidcopilot:
+    build: .
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./cache:/app/cache
+    depends_on:
+      - vllm
+    environment:
+      - LLM_BASE_URL=http://vllm:8000/v1
+      - LLM_MODEL=qwen-vl
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    command: --model /models/qwen-vl --host 0.0.0.0 --port 8000
+    volumes:
+      - /path/to/models:/models  # Adjust path
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -11,8 +11,8 @@ import sys
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from agent.skills.video_io import load_video
-from agent.skills.persist import load_analysis
+from agent.extensions.skills.video_io import load_video
+from agent.extensions.skills.persist import load_analysis
 
 def run_workflow(name, *args, **kwargs):
     print(f"Running {name}...")

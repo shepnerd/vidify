@@ -2,18 +2,29 @@
 import os
 from typing import Literal, Optional, Any, Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from agent.skills.video_io import load_video
-from agent.workflows.quick_summary import wf_quick
-from agent.workflows.detailed import wf_detailed
-from agent.workflows.index import wf_index
-from agent.workflows.ask import wf_ask
-from agent.workflows.highlights import wf_highlights
-from agent.skills.persist import load_analysis
+from agent.extensions.skills.video_io import load_video
+from agent.extensions.workflows.quick_summary import wf_quick
+from agent.extensions.workflows.detailed import wf_detailed
+from agent.extensions.workflows.index import wf_index
+from agent.extensions.workflows.ask import wf_ask
+from agent.extensions.workflows.highlights import wf_highlights
+from agent.extensions.skills.persist import load_analysis
 
 app = FastAPI(title="Video Agent Server", version="0.1.0")
+
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# Create directories if not exist
+os.makedirs("static", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
 
 
 # --------- Request/Response Schemas ---------
@@ -215,3 +226,21 @@ def get_analysis(req: LoadAnalysisReq):
         return load_analysis(asset.cache_dir)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"analysis.json not found or unreadable: {e}")
+
+# GUI Routes
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/upload")
+async def upload_video(request: Request, file: UploadFile = File(...), mode: str = Form(...)):
+    # Save uploaded file
+    file_path = f"cache/{file.filename}"
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    # Process video
+    asset = load_video("local", file_path, "cache")
+    result = run(asset, mode, {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"})
+
+    return templates.TemplateResponse("result.html", {"request": request, "result": result})

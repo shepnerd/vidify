@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from agent.skills.video_io import load_video
+from agent.extensions.skills.video_io import load_video
 from agent.workflows.brief import wf_brief
 
 def main():

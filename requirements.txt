@@ -23,3 +23,34 @@ transformers>=4.40.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 torch>=2.0.0
+
+# 新增：OCR功能
+paddlepaddle>=2.6.0
+paddleocr>=2.7.0
+pytesseract>=0.3.10
+
+# 新增：情感分析
+librosa>=0.10.0
+fer>=22.0.0
+
+# 新增：对象检测
+ultralytics>=8.0.0
+
+# 新增：翻译（使用transformers，已有）
+
+# 新增：实时流处理
+opencv-python>=4.8.0
+
+# 测试
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# 配置
+PyYAML>=6.0
+
+# CLI增强
+click>=8.0.0
+
+# GUI
+jinja2>=3.0.0
+aiofiles>=0.23.0

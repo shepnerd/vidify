@@ -5,7 +5,7 @@ Demo script showing multi-region web search capabilities
 import sys
 sys.path.append('/mnt/shared-storage-gpfs2/sfteval/wy/vidcopilot')
 
-from agent.skills.web_search import web_search, is_google_accessible
+from agent.extensions.skills.web_search import web_search, is_google_accessible
 
 def demo_multi_region_search():
     """Demonstrate multi-region search capabilities"""
