@@ -1,6 +1,6 @@
 # agent/skills/persist.py
 import os
-from agent.utils.cache import write_json, read_json, ensure_dir
+from agent.extensions.utils.cache import write_json, read_json, ensure_dir
 
 def analysis_path(cache_dir: str) -> str:
     return os.path.join(cache_dir, "analysis.json")

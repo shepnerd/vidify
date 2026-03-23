@@ -1,6 +1,6 @@
 # agent/skills/rag_index.py
 import os, math, json
-from agent.utils.cache import ensure_dir, write_json
+from agent.extensions.utils.cache import ensure_dir, write_json
 
 def build_index(video, transcript, frames, index_dir: str, chunk_sec: int = 20) -> dict:
     ensure_dir(index_dir)

@@ -1,8 +1,8 @@
 # agent/workflows/ask.py
 import json
 from openai import OpenAI
-from agent.models.vllm_openai_client import make_client
-from agent.models.direct_model_loader import make_direct_client
+from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.skills.persist import load_analysis
 from agent.skills.rag_faiss import search_faiss
 

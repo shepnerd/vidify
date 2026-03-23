@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Tuple
 import numpy as np
 import faiss
 from openai import OpenAI
-from agent.utils.cache import ensure_dir, write_json
+from agent.extensions.utils.cache import ensure_dir, write_json
 
 def _chunk_items(video, transcript, frames, chunk_sec: int = 20) -> List[Dict[str, Any]]:
     duration = video.metadata.duration_sec if video.metadata else 0.0

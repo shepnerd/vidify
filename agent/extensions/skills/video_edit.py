@@ -1,6 +1,6 @@
 # agent/skills/video_edit.py
 import os, subprocess
-from agent.utils.cache import ensure_dir
+from agent.extensions.utils.cache import ensure_dir
 
 def _run(cmd: list[str]) -> None:
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

@@ -1,5 +1,5 @@
 # agent/skills/deserialize.py
-from agent.schemas import FrameSet, Transcript
+from agent.core.schemas import FrameSet, Transcript
 
 def load_frames(frames_dict: dict) -> FrameSet:
     return FrameSet.model_validate(frames_dict)

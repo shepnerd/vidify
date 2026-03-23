@@ -1,9 +1,9 @@
 # agent/skills/highlights.py
 import json
 from openai import OpenAI
-from agent.models.vllm_openai_client import make_client
-from agent.models.direct_model_loader import make_direct_client
-from agent.schemas import HighlightClip
+from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.direct_model_loader import make_direct_client
+from agent.core.schemas import HighlightClip
 
 def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str,
                       max_clips: int = 5,

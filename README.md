@@ -8,7 +8,7 @@
 - 编辑：高光检测，支持 clips 分段导出 + reel 合集拼接
 - **深度搜索**：集成 Google Custom Search API，提供网络上下文增强
 - **报告生成**：整合多源分析结果，生成综合视频分析报告
-- **新增技能**：OCR（文本提取）、情感分析、对象检测、翻译、批量处理、自定义摘要、实时流处理
+- **新增技能**：OCR（文本提取）、情感分析、对象检测、翻译、批量处理、自定义摘要、实时流处理（支持摄像头，SlowFast策略，轻量模型）
 
 ## 1. 依赖
 - 本机：ffmpeg、Python 3.11+
@@ -153,6 +153,90 @@ docker build -t vidcopilot .
 docker run -p 9000:9000 vidcopilot
 ```
 
+## 配置管理
+
+VidCopilot 支持通过 YAML 配置文件进行模型和流程的集中管理，避免硬编码并便于自定义。
+
+### 模型配置 (models.yaml)
+```yaml
+# models.yaml - 模型配置
+mllm:
+  heavy:
+    model_name: "qwen-vl-7b"
+    base_url: "http://localhost:8000/v1"
+    max_tokens: 512
+    temperature: 0.7
+  light:
+    model_name: "qwen-vl-1b"
+    base_url: "http://localhost:8000/v1"
+    max_tokens: 256
+    temperature: 0.5
+
+ocr:
+  engine: "paddleocr"
+  lang: "ch"
+  use_angle_cls: true
+
+object_detection:
+  model: "yolov8n.pt"
+  conf_threshold: 0.5
+
+asr:
+  model: "whisper"
+  size: "small"
+  language: null
+
+emotion_analysis:
+  audio_model: "wav2vec2-emotion"
+  visual_model: "fer"
+
+translation:
+  source_lang: "en"
+  target_lang: "zh"
+  model: "helsinki-nlp"
+```
+
+### 工作流配置 (workflows.yaml)
+```yaml
+# workflows.yaml - 工作流配置
+brief:
+  steps:
+    - download_video
+    - extract_audio
+    - asr
+    - vision_caption
+    - summarize
+  output_format: "text"
+
+detailed:
+  steps:
+    - download_video
+    - extract_audio
+    - asr
+    - vision_caption
+    - ocr
+    - object_detection
+    - emotion_analysis
+    - translation
+    - timeline_build
+    - summarize
+  output_format: "json"
+
+live_stream:
+  steps:
+    - process_live_stream
+  heavy_interval: 30  # 每30帧使用重模型
+  resolution: "640x480"
+  fps: 10
+  output_format: "stream"
+```
+
+### 配置使用
+- 配置文件位于项目根目录：`models.yaml` 和 `workflows.yaml`
+- 如果配置文件不存在，系统将使用内置默认配置
+- 工作流函数会自动加载配置，如果未提供参数则使用配置文件中的默认值
+- 可以覆盖特定参数以进行自定义
+
 ### Docker Compose
 ```bash
 docker-compose up
@@ -176,6 +260,7 @@ vidcopilot analyze youtube https://... --mode detailed
 ## 示例用例
 - 分析YouTube视频：`vidcopilot analyze youtube <URL>`
 - 批量处理：使用batch_processing技能。
+- 实时流处理：`process_live_stream(source='webcam', callback=my_callback, resolution=(640,480), fps=1, heavy_interval=5)`
 
 ## 5. API用法
 Analyze（detailed）

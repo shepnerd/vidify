@@ -1,8 +1,8 @@
 import base64, io, json, math, subprocess
 from PIL import Image
 from openai import OpenAI
-from agent.models.vllm_openai_client import make_client
-from agent.models.direct_model_loader import make_direct_client
+from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.direct_model_loader import make_direct_client
 
 def supports_video(model_name: str) -> bool:
     return "qwen" in model_name.lower() or "video" in model_name.lower()
@@ -161,7 +161,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
 
 def caption_video_as_frameset(video_path: str, model_name: str, base_url: str, max_duration: int = 60,
                               direct_model: bool = False, model_path: str = None, tokenizer_path: str = None) -> "FrameSet":
-    from agent.schemas import FrameItem, FrameSet
+    from agent.core.schemas import FrameItem, FrameSet
     segments = caption_video(video_path, model_name, base_url, max_duration, direct_model, model_path, tokenizer_path)
     items = []
     for i, seg in enumerate(segments):

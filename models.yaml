@@ -1,0 +1,31 @@
+asr:
+  language: null
+  model: whisper
+  size: small
+emotion_analysis:
+  audio_model: /root/.cache/huggingface/hub/models--audeering--wav2vec2-large-robust-12-ft-emotion-msp-dim/snapshots/6eba34a2485ea31cb03600241787c3a5edab8626
+  visual_model: fer
+mllm:
+  heavy:
+    base_url: http://localhost:8000/v1
+    max_tokens: 512
+    model_name: qwen-vl-7b
+    model_path: /root/.cache/huggingface/hub/models--Qwen--Qwen-VL/snapshots/0547ed36a86561e2e42fecec8fd0c4f6953e33c4
+    temperature: 0.7
+  light:
+    base_url: http://localhost:8000/v1
+    max_tokens: 256
+    model_name: qwen-vl-1b
+    model_path: /root/.cache/huggingface/hub/models--Qwen--Qwen-VL-Chat/snapshots/f57cfbd358cb56b710d963669ad1bcfb44cdcdd8
+    temperature: 0.5
+object_detection:
+  conf_threshold: 0.5
+  model: yolov8n.pt
+ocr:
+  engine: paddleocr
+  lang: ch
+  use_angle_cls: true
+translation:
+  model: /root/.cache/huggingface/hub/models--Helsinki-NLP--opus-mt-en-zh/snapshots/408d9bc410a388e1d9aef112a2daba955b945255
+  source_lang: en
+  target_lang: zh

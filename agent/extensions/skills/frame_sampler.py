@@ -1,7 +1,7 @@
 # agent/skills/frame_sampler.py
 import os, re, subprocess, glob
-from agent.schemas import FrameSet, FrameItem, FrameStrategy
-from agent.utils.cache import ensure_dir
+from agent.core.schemas import FrameSet, FrameItem, FrameStrategy
+from agent.extensions.utils.cache import ensure_dir
 
 PTS_RE = re.compile(r".*_(\d+)\.(jpg|png)$")
 

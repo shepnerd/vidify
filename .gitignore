@@ -33,6 +33,15 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Model files
+*.bin
+*.safetensors
+*.pt
+*.h5
+*.msgpack
+*.ot
+models/
+
 # Logs
 *.log
 

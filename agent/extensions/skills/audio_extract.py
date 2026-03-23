@@ -1,6 +1,6 @@
 # agent/skills/audio_extract.py
 import os, subprocess
-from agent.utils.cache import ensure_dir, exists_nonempty
+from agent.extensions.utils.cache import ensure_dir, exists_nonempty
 
 def extract_audio(video, out_path: str) -> str:
     ensure_dir(os.path.dirname(out_path))

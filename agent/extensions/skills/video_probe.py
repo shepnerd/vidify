@@ -1,6 +1,6 @@
 # agent/skills/video_probe.py
 import json, subprocess
-from agent.schemas import VideoMetadata
+from agent.core.schemas import VideoMetadata
 
 def probe_video(local_path: str) -> VideoMetadata:
     cmd = [

@@ -1,0 +1,31 @@
+# workflows.yaml - 工作流配置
+brief:
+  steps:
+    - download_video
+    - extract_audio
+    - asr
+    - vision_caption
+    - summarize
+  output_format: "text"
+
+detailed:
+  steps:
+    - download_video
+    - extract_audio
+    - asr
+    - vision_caption
+    - ocr
+    - object_detection
+    - emotion_analysis
+    - translation
+    - timeline_build
+    - summarize
+  output_format: "json"
+
+live_stream:
+  steps:
+    - process_live_stream
+  heavy_interval: 30  # 每30帧使用重模型
+  resolution: "640x480"
+  fps: 10
+  output_format: "stream"

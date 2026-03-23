@@ -1,8 +1,8 @@
 # agent/skills/asr.py
 import os
 from faster_whisper import WhisperModel
-from agent.schemas import Transcript, ASRSegment
-from agent.utils.cache import write_json, exists_nonempty
+from agent.core.schemas import Transcript, ASRSegment
+from agent.extensions.utils.cache import write_json, exists_nonempty
 
 def transcribe(audio_path: str, out_json_path: str,
                model_size: str = "small",

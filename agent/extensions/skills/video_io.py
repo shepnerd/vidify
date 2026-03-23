@@ -1,7 +1,7 @@
 # agent/skills/video_io.py
 import os
-from agent.schemas import VideoAsset, VideoSource
-from agent.utils.cache import sha1, ensure_dir
+from agent.core.schemas import VideoAsset, VideoSource
+from agent.extensions.utils.cache import sha1, ensure_dir
 from agent.skills.video_download import download_youtube, download_generic
 
 def load_video(source_type: str, uri: str, cache_root: str) -> VideoAsset:
