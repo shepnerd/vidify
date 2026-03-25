@@ -1,8 +1,8 @@
 # agent/workflows/report.py
 import os
 from typing import Dict, Any, List
-from agent.skills.persist import load_analysis
-from agent.skills.web_search import deep_search_enhance
+from agent.extensions.skills.persist import load_analysis
+from agent.extensions.skills.web_search import deep_search_enhance
 from agent.core.schemas import VideoAsset
 
 def generate_report(asset: VideoAsset, analysis_type: str = "brief", 

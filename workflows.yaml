@@ -2,30 +2,50 @@
 brief:
   steps:
     - download_video
+    - probe
+    - extract_subtitles
     - extract_audio
     - asr
-    - vision_caption
+    - sufficiency_check
+    - vision_caption      # conditional: skipped if transcript is sufficient
+    - timeline_build
     - summarize
+  asr_first: true
+  min_coverage_ratio: 0.3
+  min_word_count: 50
+  force_visual: false
+  prefer_subtitles_over_asr: true
+  max_frames: 64
   output_format: "text"
 
 detailed:
   steps:
     - download_video
+    - probe
+    - extract_subtitles
     - extract_audio
     - asr
-    - vision_caption
+    - sufficiency_check
+    - sample_frames       # always: needed for OCR/detection
+    - vision_caption      # conditional: skipped if transcript is sufficient
     - ocr
     - object_detection
     - emotion_analysis
     - translation
     - timeline_build
     - summarize
+  asr_first: true
+  min_coverage_ratio: 0.3
+  min_word_count: 50
+  force_visual: false
+  prefer_subtitles_over_asr: true
+  max_frames: 128
   output_format: "json"
 
 live_stream:
   steps:
     - process_live_stream
-  heavy_interval: 30  # 每30帧使用重模型
+  heavy_interval: 30
   resolution: "640x480"
   fps: 10
   output_format: "stream"

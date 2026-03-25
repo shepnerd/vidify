@@ -1,8 +1,8 @@
 # agent/workflows/index.py
 import os
-from agent.skills.persist import load_analysis, save_analysis
-from agent.skills.deserialize import load_frames, load_transcript
-from agent.skills.rag_faiss import build_faiss_index
+from agent.extensions.skills.persist import load_analysis, save_analysis
+from agent.extensions.skills.deserialize import load_frames, load_transcript
+from agent.extensions.skills.rag_faiss import build_faiss_index
 from agent.extensions.workflows.detailed import wf_detailed
 
 def wf_index(asset,

@@ -87,12 +87,23 @@ def get_default_workflows_config() -> Dict[str, Any]:
         "brief": {
             "use_asr": True,
             "max_frames": 64,
-            "include_web_search": False
+            "include_web_search": False,
+            "asr_first": True,
+            "min_coverage_ratio": 0.3,
+            "min_word_count": 50,
+            "force_visual": False,
+            "prefer_subtitles_over_asr": True,
         },
         "detailed": {
             "use_advanced_skills": True,
             "max_frames": 128,
-            "heavy_interval": 5
+            "heavy_interval": 5,
+            "include_web_search": False,
+            "asr_first": True,
+            "min_coverage_ratio": 0.3,
+            "min_word_count": 50,
+            "force_visual": False,
+            "prefer_subtitles_over_asr": True,
         },
         "live_stream": {
             "source": "webcam",

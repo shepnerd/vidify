@@ -166,6 +166,7 @@ def caption_video_as_frameset(video_path: str, model_name: str, base_url: str, m
     items = []
     for i, seg in enumerate(segments):
         path = f"{video_path}_seg_{int(seg['start'])}_{int(seg['end'])}.mp4" if seg['start'] > 0 else video_path
-        item = FrameItem(id=f"seg_{i}", timestamp=seg["start"], path=path, caption=seg["caption"])
+        item = FrameItem(id=f"seg_{i}", ts=seg["start"], path=path, caption=seg["caption"])
         items.append(item)
-    return FrameSet(items=items)
+    from agent.core.schemas import FrameStrategy
+    return FrameSet(items=items, strategy=FrameStrategy(type="scene", params={"source": "video_caption"}))

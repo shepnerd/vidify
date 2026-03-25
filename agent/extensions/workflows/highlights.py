@@ -1,9 +1,9 @@
 # agent/workflows/highlights.py
 import os
-from agent.skills.persist import load_analysis, save_analysis
-from agent.skills.deserialize import load_transcript
-from agent.skills.highlights import detect_highlights
-from agent.skills.video_edit import export_highlight_clips, export_highlight_reel
+from agent.extensions.skills.persist import load_analysis, save_analysis
+from agent.extensions.skills.deserialize import load_transcript
+from agent.extensions.skills.highlights import detect_highlights
+from agent.extensions.skills.video_edit import export_highlight_clips, export_highlight_reel
 from agent.extensions.workflows.detailed import wf_detailed
 
 def wf_highlights(asset, llm_base_url: str, llm_model: str,

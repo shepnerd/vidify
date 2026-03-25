@@ -16,13 +16,21 @@ def load_video(source_type: str, uri: str, cache_root: str) -> VideoAsset:
                           local_path=local_path, cache_dir=cache_dir)
 
     if source_type == "youtube":
-        local_path = download_youtube(uri, cache_dir)
-        return VideoAsset(id=vid, source=VideoSource(type="youtube", uri=uri),
-                          local_path=local_path, cache_dir=cache_dir)
+        result = download_youtube(uri, cache_dir)
+        return VideoAsset(
+            id=vid, source=VideoSource(type="youtube", uri=uri),
+            local_path=result["video_path"], cache_dir=cache_dir,
+            content_metadata=result.get("content_metadata"),
+            subtitle_tracks=result.get("subtitle_tracks") or [],
+        )
 
     if source_type == "url":
-        local_path = download_generic(uri, cache_dir)
-        return VideoAsset(id=vid, source=VideoSource(type="url", uri=uri),
-                          local_path=local_path, cache_dir=cache_dir)
+        result = download_generic(uri, cache_dir)
+        return VideoAsset(
+            id=vid, source=VideoSource(type="url", uri=uri),
+            local_path=result["video_path"], cache_dir=cache_dir,
+            content_metadata=result.get("content_metadata"),
+            subtitle_tracks=result.get("subtitle_tracks") or [],
+        )
 
     raise ValueError(f"Unknown source_type: {source_type}")
