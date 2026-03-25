@@ -32,6 +32,7 @@ import hashlib
 import io
 import json
 import os
+import select
 import subprocess
 import sys
 import textwrap
@@ -103,11 +104,11 @@ def read_serving_ip() -> str | None:
     return None
 
 
-def launch_serving(gpu: int = 2, tp: int | None = None) -> str:
+def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
     """
-    Launch a detached vLLM serving job on a GPU node via rl.sh.
+    Launch a vLLM serving job on a GPU node via rl.sh (non-detached).
     The GPU job writes its IP to a shared-filesystem file so we can find it.
-    Returns the worker name.
+    Returns the Popen process so we can monitor stderr for scheduling errors.
     """
     os.makedirs(SERVING_INFO_DIR, exist_ok=True)
     if os.path.isfile(SERVING_IP_FILE):
@@ -129,25 +130,82 @@ def launch_serving(gpu: int = 2, tp: int | None = None) -> str:
         f'--allowed-local-media-path {CACHE_ROOT}'
     )
 
+    # Run WITHOUT -d (detach) so we keep the rlaunch process alive and can
+    # read its stderr for scheduling failures (quota, pending, OOM, etc.).
     cmd = [
         "/root/resources/rl.sh",
         "-gpu", str(gpu),
-        "-d",
         "--",
         "bash", "-c", inner_script,
     ]
     log(f"Launching vLLM serving with {gpu} GPUs (TP={tp}) ...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        log(f"  ERROR launching: {result.stderr.strip()}")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    log(f"  Launched rlaunch process (pid={proc.pid})")
+    return proc
+
+
+# Patterns in rlaunch stderr that indicate the worker will never start.
+_FATAL_PATTERNS = [
+    "insufficient group quota",
+    "does not pass quotaCheck",
+    "denied the request",
+    "Insufficient resources",
+    "tasks failed",
+]
+
+
+def _drain_stderr(proc: subprocess.Popen) -> str:
+    """Non-blocking read of all currently available stderr from *proc*."""
+    chunks = []
+    while True:
+        ready, _, _ = select.select([proc.stderr], [], [], 0)
+        if not ready:
+            break
+        chunk = proc.stderr.read1(4096) if hasattr(proc.stderr, "read1") else proc.stderr.read(4096)
+        if not chunk:
+            break
+        chunks.append(chunk.decode("utf-8", errors="replace"))
+    return "".join(chunks)
+
+
+def _check_rlaunch_health(proc: subprocess.Popen) -> None:
+    """Read rlaunch stderr and abort early on fatal scheduling errors."""
+    stderr_text = _drain_stderr(proc)
+    if stderr_text:
+        # Print rlaunch log lines so the user can see progress
+        for line in stderr_text.strip().splitlines():
+            log(f"  [rlaunch] {line.strip()}")
+
+        for pattern in _FATAL_PATTERNS:
+            if pattern in stderr_text:
+                log(f"  FATAL: Worker scheduling failed — found '{pattern}' in rlaunch output.")
+                log("  Hint: Check cluster quota (CPU/memory/GPU) with your admin.")
+                proc.terminate()
+                sys.exit(1)
+
+    # If the process exited, check return code
+    ret = proc.poll()
+    if ret is not None and ret != 0:
+        # Process already exited with error — drain any remaining stderr
+        remaining = proc.stderr.read().decode("utf-8", errors="replace")
+        if remaining:
+            for line in remaining.strip().splitlines():
+                log(f"  [rlaunch] {line.strip()}")
+        log(f"  FATAL: rlaunch exited with code {ret}.")
         sys.exit(1)
-    worker_name = result.stdout.strip()
-    log(f"  Launched worker: {worker_name}")
-    return worker_name
 
 
-def wait_for_serving(timeout: int = 600, poll_interval: int = 10) -> str:
+def wait_for_serving(
+    proc: subprocess.Popen,
+    timeout: int = 600,
+    poll_interval: int = 10,
+) -> str:
     """Wait for the GPU job to write its IP and for vLLM to become ready.
+    Monitors *proc* (the rlaunch process) for early failures.
     Returns the base_url."""
     log(f"Waiting for serving to start (timeout={timeout}s) ...")
     start = time.time()
@@ -155,25 +213,35 @@ def wait_for_serving(timeout: int = 600, poll_interval: int = 10) -> str:
     # Phase 1: wait for IP file from GPU node
     ip = None
     while time.time() - start < timeout:
+        _check_rlaunch_health(proc)
         ip = read_serving_ip()
         if ip:
             log(f"  GPU node IP: {ip}")
             break
         time.sleep(poll_interval)
     else:
+        _check_rlaunch_health(proc)  # one last check for diagnostics
         log("ERROR: Timed out waiting for GPU node to write its IP.")
+        log("  Hint: The worker pod may be stuck in Pending state.")
+        log("        Check cluster quota and node availability.")
+        proc.terminate()
         sys.exit(1)
 
     # Phase 2: wait for vLLM /v1/models to respond
     base_url = f"http://{ip}:{VLLM_PORT}/v1"
     while time.time() - start < timeout:
+        _check_rlaunch_health(proc)
         if probe_vllm(base_url, timeout=10):
             log(f"  vLLM is ready at {base_url}")
             return base_url
         log(f"  vLLM not ready yet, retrying in {poll_interval}s ...")
         time.sleep(poll_interval)
 
+    _check_rlaunch_health(proc)
     log("ERROR: Timed out waiting for vLLM to become ready.")
+    log(f"  The GPU node ({ip}) was found but vLLM never responded on port {VLLM_PORT}.")
+    log("  Possible causes: model loading OOM, missing dependencies, or vLLM crash.")
+    proc.terminate()
     sys.exit(1)
 
 
@@ -516,8 +584,8 @@ def main():
                 log("ERROR: No serving endpoint found and --skip-serve is set.")
                 sys.exit(1)
             log("No existing service found. Launching new vLLM serving ...")
-            launch_serving(gpu=args.gpu, tp=args.tp)
-            base_url = wait_for_serving(timeout=600)
+            serve_proc = launch_serving(gpu=args.gpu, tp=args.tp)
+            base_url = wait_for_serving(serve_proc, timeout=600)
 
     log(f"Using model endpoint: {base_url}")
     model_name = get_model_name(base_url)
