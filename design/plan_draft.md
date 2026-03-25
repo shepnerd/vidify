@@ -517,3 +517,10 @@ def wf_highlights(asset: VideoAsset, model_name: str, base_url: str) -> Analysis
 ---
 
 如果你把“Qwen3.5 的具体模型名/权重路径（以及是否 VL）”和你们希望的“最大关键帧数/单次多图上限”给我，我可以把 `caption_frames` 的**分批策略**（每次喂多少张图、如何拼 prompt、如何把返回结果对齐到 frame_id）也定成一版固定实现，避免后面返工。
+
+
+
+
+
+## efficient video processing
+we need a flexiable and semi-auto solution to process videos and understand and reason over them if necessary.

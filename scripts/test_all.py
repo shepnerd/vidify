@@ -300,12 +300,14 @@ def test_video_probe(video_path: str, **_) -> dict:
 
 
 def test_frame_sample(video_path: str, cache_dir: str, **_) -> dict:
-    """Test frame_sampler skill: extract key frames."""
+    """Test frame_sampler skill: extract key frames from a 60s clip."""
     log("=" * 60)
-    log("TEST: frame_sample — Extract key frames (fps=0.1, max 8)")
+    log("TEST: frame_sample — Extract key frames (fps=0.5, max 8, from 60s clip)")
     log("=" * 60)
-    frames = extract_frames(video_path, os.path.join(cache_dir, "frames_test"),
-                            fps=0.1, max_frames=8)
+    # Use a short clip to avoid decoding the entire long video
+    clip_path = get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir)
+    frames = extract_frames(clip_path, os.path.join(cache_dir, "frames_test"),
+                            fps=0.5, max_frames=8)
     log(f"  Extracted {len(frames)} frames")
     for f in frames[:4]:
         log(f"    {f['id']} @ {f['ts']:.1f}s  {f['path']}")
@@ -323,8 +325,9 @@ def test_frame_caption(video_path: str, cache_dir: str,
     import base64, io
     from PIL import Image
 
-    frames = extract_frames(video_path, os.path.join(cache_dir, "frames_caption"),
-                            fps=0.1, max_frames=4)
+    clip_path = get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir)
+    frames = extract_frames(clip_path, os.path.join(cache_dir, "frames_caption"),
+                            fps=0.5, max_frames=4)
     log(f"  Using {len(frames)} frames")
 
     client = make_client(base_url)
@@ -427,7 +430,28 @@ def test_asr(video_path: str, cache_dir: str, **_) -> dict:
         return {"status": "skip", "reason": "faster_whisper not installed"}
 
     log("  Loading Whisper model (small) ...")
-    model = WhisperModel("small", device="cuda", compute_type="float16")
+    # Whisper model download needs HuggingFace access — try offline first,
+    # then attempt download with a short timeout to avoid 17-min hangs.
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        model = WhisperModel("small", device="cuda", compute_type="float16")
+    except Exception:
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        # Quick connectivity check before attempting full download
+        import socket
+        try:
+            socket.create_connection(("huggingface.co", 443), timeout=5)
+        except (socket.timeout, OSError):
+            log("  SKIP: Whisper model not cached and huggingface.co unreachable")
+            return {"status": "skip", "reason": "Whisper model not available (no cache, no internet)"}
+        log("  Whisper model not cached locally, downloading ...")
+        try:
+            model = WhisperModel("small", device="cuda", compute_type="float16")
+        except Exception as e2:
+            log(f"  SKIP: Cannot load Whisper model: {e2}")
+            return {"status": "skip", "reason": f"Whisper model download failed: {e2}"}
+    finally:
+        os.environ.pop("HF_HUB_OFFLINE", None)
     segments_iter, info = model.transcribe(audio_path, beam_size=5)
     log(f"  Language: {info.language} (prob={info.language_probability:.2f})")
 
@@ -458,8 +482,10 @@ def test_ocr(video_path: str, cache_dir: str, **_) -> dict:
         log(f"  SKIP: {e}")
         return {"status": "skip", "reason": str(e)}
 
-    frames = extract_frames(video_path, os.path.join(cache_dir, "frames_ocr"),
-                            fps=0.05, max_frames=3)
+    frames = extract_frames(
+        get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir),
+        os.path.join(cache_dir, "frames_ocr"),
+        fps=0.5, max_frames=3)
     log(f"  Using {len(frames)} frames")
 
     results = {}
@@ -485,8 +511,10 @@ def test_object_detection(video_path: str, cache_dir: str, **_) -> dict:
         log(f"  SKIP: {e}")
         return {"status": "skip", "reason": str(e)}
 
-    frames = extract_frames(video_path, os.path.join(cache_dir, "frames_detect"),
-                            fps=0.05, max_frames=3)
+    frames = extract_frames(
+        get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir),
+        os.path.join(cache_dir, "frames_detect"),
+        fps=0.5, max_frames=3)
     log(f"  Using {len(frames)} frames")
 
     results = {}
@@ -512,16 +540,17 @@ def test_timeline(video_path: str, cache_dir: str,
 
     # Build minimal inputs for the LLM
     from agent.extensions.skills.video_probe import probe_video
-    from agent.core.schemas import Transcript, ASRSegment, FrameSet, FrameItem
+    from agent.core.schemas import Transcript, ASRSegment, FrameSet, FrameItem, FrameStrategy
 
     meta = probe_video(video_path)
 
-    # Use a few frames as context
-    raw_frames = extract_frames(video_path, os.path.join(cache_dir, "frames_timeline"),
-                                fps=0.05, max_frames=6)
-    frame_items = [FrameItem(id=f["id"], timestamp=f["ts"], path=f["path"],
+    # Use a few frames as context (from a short clip to avoid slow decode)
+    clip_path = get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir)
+    raw_frames = extract_frames(clip_path, os.path.join(cache_dir, "frames_timeline"),
+                                fps=0.5, max_frames=6)
+    frame_items = [FrameItem(id=f["id"], ts=f["ts"], path=f["path"],
                              caption=f"Frame at {f['ts']:.0f}s") for f in raw_frames]
-    frames = FrameSet(items=frame_items)
+    frames = FrameSet(items=frame_items, strategy=FrameStrategy(type="fps", params={"fps": 0.5}))
 
     # Minimal fake ASR for timeline context
     transcript = Transcript(segments=[
@@ -585,10 +614,11 @@ def test_highlights(video_path: str, cache_dir: str,
 
     meta = probe_video(video_path)
 
-    # Build minimal context
-    raw_frames = extract_frames(video_path, os.path.join(cache_dir, "frames_highlights"),
-                                fps=0.05, max_frames=6)
-    frame_items = [FrameItem(id=f["id"], timestamp=f["ts"], path=f["path"],
+    # Build minimal context (use short clip for fast frame extraction)
+    clip_path = get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir)
+    raw_frames = extract_frames(clip_path, os.path.join(cache_dir, "frames_highlights"),
+                                fps=0.5, max_frames=6)
+    frame_items = [FrameItem(id=f["id"], ts=f["ts"], path=f["path"],
                              caption=f"Scene at {f['ts']:.0f}s") for f in raw_frames]
 
     transcript = Transcript(segments=[
