@@ -7,13 +7,15 @@ def _run(cmd: list[str]) -> None:
     if p.returncode != 0:
         raise RuntimeError(p.stderr)
 
-def export_highlight_clips(video, highlights, out_dir: str):
+def export_highlight_clips(video, highlights, out_dir: str, scale_w: int = 640):
     ensure_dir(out_dir)
     out = []
     for i, h in enumerate(highlights, 1):
         out_path = os.path.join(out_dir, f"clip_{i:02d}_{h.start:.1f}-{h.end:.1f}.mp4")
         cmd = ["ffmpeg", "-y", "-ss", str(h.start), "-to", str(h.end), "-i", video.local_path,
-               "-c", "copy", out_path]
+               "-vf", f"scale={scale_w}:-2",
+               "-c:v", "libx264", "-preset", "ultrafast",
+               "-an", out_path]
         _run(cmd)
         h.output_path = out_path
         out.append(h)

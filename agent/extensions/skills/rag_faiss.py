@@ -3,7 +3,7 @@ import os, json, math
 from typing import List, Dict, Any, Tuple
 import numpy as np
 import faiss
-from openai import OpenAI
+from agent.extensions.models.vllm_openai_client import make_client
 from agent.extensions.utils.cache import ensure_dir, write_json
 
 def _chunk_items(video, transcript, frames, chunk_sec: int = 20) -> List[Dict[str, Any]]:
@@ -64,7 +64,7 @@ def build_faiss_index(
     if not texts:
         raise RuntimeError("No chunks to index.")
 
-    client = OpenAI(base_url=embed_base_url, api_key="EMPTY")
+    client = make_client(embed_base_url)
     all_vecs = []
     for i in range(0, len(texts), batch_size):
         all_vecs.append(_embed_texts(client, embed_model, texts[i:i+batch_size]))
@@ -108,7 +108,7 @@ def search_faiss(
     top_k: int = 5
 ) -> List[Dict[str, Any]]:
     index, items, _ = load_faiss_index(index_dir)
-    client = OpenAI(base_url=embed_base_url, api_key="EMPTY")
+    client = make_client(embed_base_url)
 
     qv = _embed_texts(client, embed_model, [query])  # (1, dim)
     D, I = index.search(qv, top_k)

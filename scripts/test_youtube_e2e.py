@@ -38,6 +38,12 @@ import sys
 import textwrap
 import time
 
+# ── Unset cluster proxy env vars BEFORE importing HTTP libraries ──────────────
+# The kubebrain service mesh proxy cannot forward multimodal POST requests.
+# Direct pod-to-pod connections work fine, so we bypass the proxy entirely.
+for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+    os.environ.pop(_key, None)
+
 import requests
 from openai import OpenAI
 from PIL import Image
@@ -51,6 +57,7 @@ MODEL_PATH = (
 CACHE_ROOT = os.path.join(PROJECT_ROOT, "cache")
 SERVING_INFO_DIR = os.path.join(CACHE_ROOT, ".serving")
 SERVING_IP_FILE = os.path.join(SERVING_INFO_DIR, "serving_ip.txt")
+SERVING_LOG_FILE = os.path.join(SERVING_INFO_DIR, "vllm.log")
 VLLM_PORT = 8000
 
 DEFAULT_YOUTUBE = "https://www.youtube.com/watch?v=BoC5MY_7aDk"
@@ -118,16 +125,18 @@ def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
         tp = gpu
 
     # The GPU node writes its IP to shared storage, then starts vLLM.
+    # vLLM stdout/stderr are teed to a log file on shared storage for debugging.
     # We escape braces for awk inside the f-string.
     inner_script = (
         f'IP=$(hostname -I | awk \'{{print $1}}\'); '
         f'echo "$IP" > {SERVING_IP_FILE}; '
-        f'echo "[serving] Node IP: $IP, starting vLLM ..."; '
+        f'echo "[serving] Node IP: $IP, starting vLLM ..." | tee {SERVING_LOG_FILE}; '
         f'exec vllm serve {MODEL_PATH} '
         f'--host 0.0.0.0 --port {VLLM_PORT} '
         f'--tensor-parallel-size {tp} '
         f'--max-model-len 32768 '
-        f'--allowed-local-media-path {CACHE_ROOT}'
+        f'--allowed-local-media-path {CACHE_ROOT} '
+        f'2>&1 | tee -a {SERVING_LOG_FILE}'
     )
 
     # Run WITHOUT -d (detach) so we keep the rlaunch process alive and can
@@ -255,7 +264,7 @@ def download_youtube_video(url: str, out_dir: str) -> str:
         log(f"  Using cached video: {out_path}")
         return out_path
     log(f"  Downloading: {url}")
-    cmd = ["yt-dlp", url, "-f", "bv*+ba/b", "-o", out_path]
+    cmd = ["yt-dlp", url, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "-o", out_path]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
         log(f"  ERROR downloading video:\n{p.stderr}")
@@ -307,10 +316,11 @@ def img_to_data_url(path: str, max_w: int = 256, max_h: int = 144) -> str:
 
 
 def split_video_segment(video_path: str, start: float, duration: float, out_path: str):
-    """Extract a segment from a video."""
+    """Extract a segment from a video, re-encoding to ensure readable output."""
     subprocess.run(
-        ["ffmpeg", "-y", "-i", video_path, "-ss", str(start), "-t", str(duration),
-         "-c", "copy", out_path],
+        ["ffmpeg", "-y", "-ss", str(start), "-i", video_path, "-t", str(duration),
+         "-vf", "scale=640:-2", "-c:v", "libx264", "-preset", "ultrafast",
+         "-an", out_path],
         capture_output=True, check=True,
     )
 
@@ -328,8 +338,21 @@ def get_model_name(base_url: str) -> str:
     return models[0]["id"]
 
 
-def make_client(base_url: str) -> OpenAI:
-    return OpenAI(base_url=base_url, api_key="EMPTY")
+def make_client(base_url: str, timeout: float = 120.0) -> OpenAI:
+    return OpenAI(base_url=base_url, api_key="EMPTY", timeout=timeout)
+
+
+def get_short_clip(video_path: str, max_duration: float = 30.0) -> str:
+    """Return a short clip path for video tests. Re-encodes to ensure readability."""
+    duration = get_video_duration(video_path)
+    if duration <= max_duration:
+        return video_path
+    clip_path = os.path.join(os.path.dirname(video_path), f"clip_{int(max_duration)}s.mp4")
+    if os.path.isfile(clip_path) and os.path.getsize(clip_path) > 0:
+        return clip_path
+    log(f"  Extracting {max_duration:.0f}s clip from {duration:.0f}s video ...")
+    split_video_segment(video_path, 0, max_duration, clip_path)
+    return clip_path
 
 
 # ── Test Functions ─────────────────────────────────────────────────────────────
@@ -417,6 +440,7 @@ def test_video_captioning(base_url: str, model_name: str, video_path: str):
     """
     Test 3: Direct video segment captioning via vLLM.
     Qwen3-VL supports video input natively.
+    Tests with up to 2 short segments to keep runtime bounded.
     """
     log("=" * 60)
     log("TEST 3: Video Segment Captioning")
@@ -425,11 +449,12 @@ def test_video_captioning(base_url: str, model_name: str, video_path: str):
     duration = get_video_duration(video_path)
     log(f"  Video duration: {duration:.1f}s")
 
-    max_segment = 30.0
+    max_segment = 15.0
+    max_segments = 2
     segments = []
     start = 0.0
 
-    while start < duration:
+    while start < duration and len(segments) < max_segments:
         end = min(start + max_segment, duration)
         if end - start < 2.0:
             break  # skip tiny tail segments
@@ -447,7 +472,7 @@ def test_video_captioning(base_url: str, model_name: str, video_path: str):
         client = make_client(base_url)
         content = [
             {"type": "text", "text": "Describe what happens in this video segment."},
-            {"type": "video", "video": f"file://{seg_path}"},
+            {"type": "video_url", "video_url": {"url": f"file://{seg_path}"}},
         ]
         resp = client.chat.completions.create(
             model=model_name,
@@ -467,17 +492,20 @@ def test_video_captioning(base_url: str, model_name: str, video_path: str):
 def test_video_qa(base_url: str, model_name: str, video_path: str, question: str):
     """
     Test 4: Ask a question about the video (multimodal Q&A).
+    Uses a short clip to keep inference time bounded.
     """
     log("=" * 60)
     log("TEST 4: Video Q&A")
     log("=" * 60)
 
+    clip_path = get_short_clip(video_path, max_duration=30.0)
     client = make_client(base_url)
     content = [
         {"type": "text", "text": question},
-        {"type": "video", "video": f"file://{video_path}"},
+        {"type": "video_url", "video_url": {"url": f"file://{clip_path}"}},
     ]
     log(f"  Question: {question}")
+    log(f"  Video clip: {clip_path}")
     resp = client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": content}],
@@ -494,16 +522,18 @@ def test_multi_turn_qa(base_url: str, model_name: str, video_path: str):
     """
     Test 5: Multi-turn conversation about the video.
     First ask a general question, then a follow-up.
+    Uses a short clip to keep inference time bounded.
     """
     log("=" * 60)
     log("TEST 5: Multi-turn Video Q&A")
     log("=" * 60)
 
+    clip_path = get_short_clip(video_path, max_duration=30.0)
     client = make_client(base_url)
     messages = [
         {"role": "user", "content": [
             {"type": "text", "text": "What is this video about? Give a brief summary."},
-            {"type": "video", "video": f"file://{video_path}"},
+            {"type": "video_url", "video_url": {"url": f"file://{clip_path}"}},
         ]},
     ]
 

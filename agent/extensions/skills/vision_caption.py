@@ -3,6 +3,9 @@ from PIL import Image
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client
 from agent.extensions.models.direct_model_loader import make_direct_client
+from agent.extensions.utils import (
+    get_video_duration, split_video_segment, make_video_content,
+)
 
 def supports_video(model_name: str) -> bool:
     return "qwen" in model_name.lower() or "video" in model_name.lower()
@@ -105,9 +108,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
     Returns list of dict: {"start": float, "end": float, "caption": str}
     """
     # Get duration
-    result = subprocess.run(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', video_path],
-                            capture_output=True, text=True)
-    duration = float(json.loads(result.stdout)['format']['duration'])
+    duration = get_video_duration(video_path)
 
     if duration <= max_duration:
         # Direct process
@@ -117,7 +118,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
             text = client.chat_with_images(model_name, prompt, [f"file://{video_path}"], max_tokens=500, temperature=0.2)
         else:
             client = make_client(base_url)
-            content = [{"type": "text", "text": "请生成视频的中文描述。"}, {"type": "video", "video": f"file://{video_path}"}]
+            content = [{"type": "text", "text": "请生成视频的中文描述。"}, make_video_content(video_path)]
             resp = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": content}],
@@ -135,8 +136,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
         while start < duration:
             end = min(start + max_duration, duration)
             segment_path = f"{video_path}_seg_{int(start)}_{int(end)}.mp4"
-            subprocess.run(['ffmpeg', '-i', video_path, '-ss', str(start), '-t', str(end - start), '-c', 'copy', segment_path, '-y'],
-                           capture_output=True)
+            split_video_segment(video_path, start, end - start, segment_path)
             # Process segment
             prev_summary = summaries[-1] if summaries else ""
             if direct_model:
@@ -146,7 +146,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
             else:
                 client = make_client(base_url)
                 content = [{"type": "text", "text": f"请生成这段视频的中文描述。{f' 前面的总结：{prev_summary}' if prev_summary else ''}"},
-                           {"type": "video", "video": f"file://{segment_path}"}]
+                           make_video_content(segment_path)]
                 resp = client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": content}],

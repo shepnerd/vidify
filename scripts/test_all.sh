@@ -1,1 +1,11 @@
-rl.sh -gpu 2 -- python scripts/test_all.py --video-path ./media/rocket~1.mp4 --cache-root ./cache --direct-model --model-path /root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
+#!/bin/bash
+# Run all VidCopilot skill tests on a local video.
+# Usage:
+#   bash scripts/test_all.sh                              # default: taste_in_china video, 4 GPUs
+#   bash scripts/test_all.sh --api-base http://HOST:8000  # use existing serving
+#   bash scripts/test_all.sh --gpu 2                      # override GPU count
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VIDEO="${SCRIPT_DIR}/../media/taste_in_china_s1e1.mp4"
+
+python "${SCRIPT_DIR}/test_all.py" --video-path "$VIDEO" "$@"

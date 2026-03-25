@@ -1,5 +1,5 @@
 # agent/skills/multimodal_qa.py
-from openai import OpenAI
+from agent.extensions.models.vllm_openai_client import make_client
 
 def video_frames_qa(frame_items, question: str,
                     model_name: str, base_url: str,
@@ -11,7 +11,7 @@ def video_frames_qa(frame_items, question: str,
     frame_items: List[FrameItem] (must have .path)
     A方案：image_url.url 直接传本地路径；需要 vLLM serve 时设置 allowed-local-media-path [1]
     """
-    client = OpenAI(base_url=base_url, api_key="EMPTY")
+    client = make_client(base_url)
     imgs = frame_items[:max_images]
 
     content = [{"type": "text", "text": (
