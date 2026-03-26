@@ -3,6 +3,7 @@ import os, json, math
 from typing import List, Dict, Any, Tuple
 import numpy as np
 import faiss
+from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client
 from agent.extensions.utils.cache import ensure_dir, write_json
 

@@ -1,10 +1,72 @@
-import cv2
-import numpy as np
-from paddleocr import PaddleOCR
-from typing import List, Dict, Any
+import os
+# Disable OneDNN/MKL-DNN to avoid conflicts with CTranslate2 (used by faster-whisper)
+os.environ["FLAGS_use_mkldnn"] = "0"
 
-# 初始化PaddleOCR（支持中英文，可扩展多语言）
-ocr = PaddleOCR(use_angle_cls=True, lang='ch')  # 默认中文，可改为'en'或'multilingual'
+import cv2
+import json
+import subprocess
+import sys
+import tempfile
+import numpy as np
+from typing import List, Dict, Any
+from agent.config import get_model_path
+
+_ocr = None
+_ctranslate2_loaded = False
+
+
+def _check_ctranslate2():
+    """Check if ctranslate2 has been loaded (e.g. by faster-whisper).
+    CTranslate2 corrupts OneDNN state for PaddlePaddle in the same process."""
+    global _ctranslate2_loaded
+    if not _ctranslate2_loaded:
+        _ctranslate2_loaded = "ctranslate2" in sys.modules
+    return _ctranslate2_loaded
+
+
+def _get_ocr():
+    """Lazy-init PaddleOCR so import doesn't crash if models are missing."""
+    global _ocr
+    if _ocr is None:
+        try:
+            import paddle
+            paddle.set_flags({"FLAGS_use_mkldnn": False})
+        except Exception:
+            pass
+        from paddleocr import PaddleOCR
+        _ocr = PaddleOCR(
+            use_angle_cls=True,
+            lang='ch',
+            det_model_dir=get_model_path("paddleocr/det"),
+            rec_model_dir=get_model_path("paddleocr/rec"),
+            cls_model_dir=get_model_path("paddleocr/cls"),
+            enable_mkldnn=False,
+        )
+    return _ocr
+
+
+def _ocr_in_subprocess(frame_path: str) -> List[Dict[str, Any]]:
+    """Run OCR in a subprocess to avoid OneDNN conflicts with CTranslate2."""
+    script = f'''
+import os, sys, json
+os.environ["FLAGS_use_mkldnn"] = "0"
+sys.path.insert(0, {repr(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))})
+from agent.extensions.skills.ocr import extract_text_from_frame
+result = extract_text_from_frame({repr(frame_path)})
+print(json.dumps(result, ensure_ascii=False))
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        return []
+    for line in result.stdout.strip().splitlines():
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return []
 
 def extract_text_from_frame(frame_path: str) -> List[Dict[str, Any]]:
     """
@@ -16,11 +78,16 @@ def extract_text_from_frame(frame_path: str) -> List[Dict[str, Any]]:
     Returns:
         List[Dict]: 检测到的文本列表，每个包含文本、位置、置信度。
     """
+    # CTranslate2 (faster-whisper) corrupts OneDNN for PaddlePaddle.
+    # If it was loaded in this process, run OCR in a clean subprocess.
+    if _check_ctranslate2():
+        return _ocr_in_subprocess(frame_path)
+
     img = cv2.imread(frame_path)
     if img is None:
         return []
 
-    results = ocr.ocr(img, cls=True)
+    results = _get_ocr().ocr(img, cls=True)
     if not results or not results[0]:
         return []
 
@@ -29,7 +96,7 @@ def extract_text_from_frame(frame_path: str) -> List[Dict[str, Any]]:
         bbox, (text, confidence) = line
         texts.append({
             'text': text,
-            'bbox': bbox,  # 边界框坐标
+            'bbox': bbox,
             'confidence': confidence
         })
     return texts

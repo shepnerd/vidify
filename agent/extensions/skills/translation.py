@@ -1,9 +1,20 @@
-from transformers import pipeline
 from typing import List, Dict, Any
 
-# 初始化翻译管道（支持多语言，如英译中）
-translator_en_zh = pipeline("translation", model="Helsinki-NLP/opus-mt-en-zh")
-translator_zh_en = pipeline("translation", model="Helsinki-NLP/opus-mt-zh-en")
+_translators = {}
+
+def _get_translator(source_lang: str, target_lang: str):
+    """Lazy-init translation pipeline for a language pair (HF-managed)."""
+    key = f"{source_lang}-{target_lang}"
+    if key not in _translators:
+        from transformers import pipeline
+        model_map = {
+            "en-zh": "Helsinki-NLP/opus-mt-en-zh",
+            "zh-en": "Helsinki-NLP/opus-mt-zh-en",
+        }
+        if key not in model_map:
+            raise ValueError(f"Unsupported language pair: {source_lang} to {target_lang}")
+        _translators[key] = pipeline("translation", model=model_map[key])
+    return _translators[key]
 
 def translate_text(text: str, source_lang: str = 'en', target_lang: str = 'zh') -> str:
     """
@@ -17,14 +28,8 @@ def translate_text(text: str, source_lang: str = 'en', target_lang: str = 'zh') 
     Returns:
         str: 翻译后的文本。
     """
-    if source_lang == 'en' and target_lang == 'zh':
-        result = translator_en_zh(text)
-    elif source_lang == 'zh' and target_lang == 'en':
-        result = translator_zh_en(text)
-    else:
-        # 可扩展更多语言对
-        raise ValueError(f"Unsupported language pair: {source_lang} to {target_lang}")
-
+    translator = _get_translator(source_lang, target_lang)
+    result = translator(text)
     return result[0]['translation_text']
 
 def translate_asr_results(asr_results: List[Dict[str, Any]], target_lang: str = 'zh') -> List[Dict[str, Any]]:

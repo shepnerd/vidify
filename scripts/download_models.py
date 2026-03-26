@@ -1,133 +1,169 @@
 #!/usr/bin/env python3
 """
-Script to download required models for VidCopilot agent and update configuration.
-"""
+Download all required models for VidCopilot and organize them.
 
+HuggingFace models stay in the HF cache (managed by huggingface_hub).
+Non-HF models (PaddleOCR, YOLOv8) are placed under models/ in the project root.
+
+Usage:
+    python scripts/download_models.py          # download all
+    python scripts/download_models.py --only whisper paddleocr yolo
+"""
+import argparse
 import os
-import yaml
-import subprocess
+import shutil
 import sys
 from pathlib import Path
 
-def download_huggingface_model(model_name, save_path=None):
-    """Download a model from Hugging Face."""
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MODELS_DIR = PROJECT_ROOT / "models"
+
+
+def download_whisper(size: str = "small"):
+    """Download faster-whisper model via HuggingFace (stays in HF cache)."""
     try:
         from huggingface_hub import snapshot_download
-        print(f"Downloading {model_name} to {save_path or 'HF cache'}...")
-        return snapshot_download(repo_id=model_name, local_dir=save_path)
-    except ImportError:
-        print("huggingface_hub not installed. Please install with: pip install huggingface_hub")
-        return None
+        repo = f"Systran/faster-whisper-{size}"
+        print(f"[whisper] Downloading {repo} (HF-managed) ...")
+        path = snapshot_download(repo)
+        print(f"[whisper] OK: {path}")
+        return path
     except Exception as e:
-        print(f"Failed to download {model_name}: {e}")
+        print(f"[whisper] FAILED: {e}")
         return None
 
-def download_yolo_model(model_name, save_path):
-    """Download YOLO model using ultralytics."""
+
+def download_paddleocr():
+    """Download PaddleOCR models and copy to models/paddleocr/."""
+    paddle_dir = MODELS_DIR / "paddleocr"
+    # Check if already present
+    if all((paddle_dir / d / "inference.pdmodel").exists() for d in ("det", "rec", "cls")):
+        print("[paddleocr] Already present in models/paddleocr/")
+        return True
+
+    try:
+        # Initialize PaddleOCR to trigger downloads to ~/.paddleocr/
+        os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+        from paddleocr import PaddleOCR
+        print("[paddleocr] Initializing PaddleOCR (downloads to ~/.paddleocr/) ...")
+        PaddleOCR(use_angle_cls=True, lang="ch")
+
+        # Copy to models/paddleocr/
+        src_map = {
+            "det": Path.home() / ".paddleocr/whl/det/ch/ch_PP-OCRv4_det_infer",
+            "rec": Path.home() / ".paddleocr/whl/rec/ch/ch_PP-OCRv4_rec_infer",
+            "cls": Path.home() / ".paddleocr/whl/cls/ch_ppocr_mobile_v2.0_cls_infer",
+        }
+        for name, src in src_map.items():
+            dst = paddle_dir / name
+            if src.exists():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+                print(f"[paddleocr] Copied {name}: {src} -> {dst}")
+            else:
+                print(f"[paddleocr] WARNING: source not found: {src}")
+        return True
+    except Exception as e:
+        print(f"[paddleocr] FAILED: {e}")
+        return False
+
+
+def download_yolo(model_name: str = "yolov8n.pt"):
+    """Download YOLO model to models/."""
+    dst = MODELS_DIR / model_name
+    if dst.exists():
+        print(f"[yolo] Already present: {dst}")
+        return True
     try:
         from ultralytics import YOLO
-        print(f"Downloading {model_name}...")
+        print(f"[yolo] Downloading {model_name} ...")
         model = YOLO(model_name)
-        model.save(save_path)
+        # ultralytics downloads to CWD; move to models/
+        src = Path(model_name)
+        if src.exists() and src != dst:
+            shutil.move(str(src), str(dst))
+        print(f"[yolo] OK: {dst}")
         return True
-    except ImportError:
-        print("ultralytics not installed. Please install with: pip install ultralytics")
-        return False
     except Exception as e:
-        print(f"Failed to download {model_name}: {e}")
+        print(f"[yolo] FAILED: {e}")
         return False
 
-def download_whisper_model(model_size, save_path):
-    """Download Whisper model."""
+
+def download_emotion():
+    """Download emotion analysis model (HF-managed)."""
     try:
-        import whisper
-        print(f"Downloading Whisper {model_size} model...")
-        whisper.load_model(model_size)
-        # Whisper models are cached automatically
-        return True
-    except ImportError:
-        print("openai-whisper not installed. Please install with: pip install openai-whisper")
-        return False
+        from huggingface_hub import snapshot_download
+        repo = "superb/wav2vec2-base-superb-er"
+        print(f"[emotion] Downloading {repo} (HF-managed) ...")
+        path = snapshot_download(repo)
+        print(f"[emotion] OK: {path}")
+        return path
     except Exception as e:
-        print(f"Failed to download Whisper {model_size}: {e}")
+        print(f"[emotion] FAILED: {e}")
+        return None
+
+
+def download_translation():
+    """Download translation models (HF-managed)."""
+    try:
+        from huggingface_hub import snapshot_download
+        for repo in ("Helsinki-NLP/opus-mt-en-zh", "Helsinki-NLP/opus-mt-zh-en"):
+            print(f"[translation] Downloading {repo} (HF-managed) ...")
+            path = snapshot_download(repo)
+            print(f"[translation] OK: {path}")
+        return True
+    except Exception as e:
+        print(f"[translation] FAILED: {e}")
         return False
 
-def download_fer_model(save_path):
-    """Download FER model."""
-    try:
-        import fer
-        # FER models are downloaded automatically on first use
-        print("FER model will be downloaded on first use.")
-        return True
-    except ImportError:
-        print("fer not installed. Please install with: pip install fer")
-        return False
+
+ALL_MODELS = ["whisper", "paddleocr", "yolo", "emotion", "translation"]
+
+DOWNLOAD_MAP = {
+    "whisper": download_whisper,
+    "paddleocr": download_paddleocr,
+    "yolo": download_yolo,
+    "emotion": download_emotion,
+    "translation": download_translation,
+}
+
 
 def main():
-    # Load current models config
-    config_path = Path("models.yaml")
-    if config_path.exists():
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-    else:
-        print("models.yaml not found. Using default config.")
-        config = {}
+    parser = argparse.ArgumentParser(description="Download VidCopilot models")
+    parser.add_argument("--only", nargs="+", choices=ALL_MODELS, default=ALL_MODELS,
+                        help="Download only specific models (default: all)")
+    args = parser.parse_args()
 
-    # Download models
-    downloads = {
-        "mllm": {
-            "heavy": {"model_name": "Qwen/Qwen-VL", "path_key": "model_path"},
-            "light": {"model_name": "Qwen/Qwen-VL-Chat", "path_key": "model_path"}
-        },
-        "object_detection": {"model": "yolov8n.pt", "path_key": "model"},
-        "asr": {"model": "whisper", "size": "small", "path_key": "model"},
-        "emotion_analysis": {
-            "audio_model": "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim",
-            "visual_model": "fer",
-            "path_key": "audio_model"
-        },
-        "translation": {"model": "Helsinki-NLP/opus-mt-en-zh", "path_key": "model"}
-    }
+    MODELS_DIR.mkdir(exist_ok=True)
 
-    for section, models in downloads.items():
-        if section not in config:
-            config[section] = {}
-        if section == "mllm":
-            for sub_key, model_info in models.items():
-                model_name = model_info["model_name"]
-                save_path = download_huggingface_model(model_name, None)
-                if save_path:
-                    if sub_key not in config[section]:
-                        config[section][sub_key] = {}
-                    config[section][sub_key][model_info["path_key"]] = save_path
-        elif section == "object_detection":
-            model_name = models["model"]
-            # For YOLO, download to HF cache or specific? But YOLO uses ultralytics, may not use HF.
-            # Keep as is, but since not HF, perhaps leave.
-            # For now, assume YOLO downloads elsewhere.
-            config[section][models["path_key"]] = model_name  # Keep as name
-        elif section == "asr":
-            # Whisper downloads automatically
-            config[section][models["path_key"]] = models["model"]
-        elif section == "emotion_analysis":
-            # Download audio model
-            model_name = models["audio_model"]
-            save_path = download_huggingface_model(model_name, None)
-            if save_path:
-                config[section][models["path_key"]] = save_path
-            # FER
-            download_fer_model(None)
-        elif section == "translation":
-            model_name = models["model"]
-            save_path = download_huggingface_model(model_name, None)
-            if save_path:
-                config[section][models["path_key"]] = save_path
+    print(f"Models directory: {MODELS_DIR}")
+    print(f"Downloading: {', '.join(args.only)}\n")
 
-    # Save updated config
-    with open(config_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False)
+    for name in args.only:
+        DOWNLOAD_MAP[name]()
+        print()
 
-    print("Model download complete. Configuration updated in models.yaml")
+    # Summary
+    print("=" * 50)
+    print("Model inventory:")
+    print("=" * 50)
+    print(f"\n  models/ ({MODELS_DIR}):")
+    for p in sorted(MODELS_DIR.rglob("*")):
+        if p.is_file():
+            rel = p.relative_to(MODELS_DIR)
+            size_mb = p.stat().st_size / 1024 / 1024
+            print(f"    {rel}  ({size_mb:.1f} MB)")
+
+    print(f"\n  HuggingFace cache ({Path.home() / '.cache/huggingface/hub'}):")
+    hf_dir = Path.home() / ".cache/huggingface/hub"
+    if hf_dir.exists():
+        for d in sorted(hf_dir.iterdir()):
+            if d.is_dir() and d.name.startswith("models--"):
+                print(f"    {d.name}")
+
+    print("\nDone.")
+
 
 if __name__ == "__main__":
     main()

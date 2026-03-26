@@ -2,6 +2,23 @@ import yaml
 import os
 from typing import Dict, Any
 
+# ── Central model directory ─────────────────────────────────────────────────
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_ROOT = os.path.join(PROJECT_ROOT, "models")
+
+
+def get_model_path(subpath: str) -> str:
+    """Resolve a model path under MODEL_ROOT.
+
+    Returns the full path if it exists under models/, otherwise returns
+    *subpath* unchanged so the calling library can fall back to its own
+    download / cache logic (e.g. HuggingFace model IDs).
+    """
+    full = os.path.join(MODEL_ROOT, subpath)
+    if os.path.exists(full):
+        return full
+    return subpath
+
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:

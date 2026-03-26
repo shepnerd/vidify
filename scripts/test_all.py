@@ -37,6 +37,10 @@ for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
              "all_proxy", "ALL_PROXY"):
     os.environ.pop(_key, None)
 
+# Disable PaddlePaddle OneDNN to avoid "could not create a primitive descriptor"
+# errors on CPUs without full AVX-512 support. Must be set before any Paddle import.
+os.environ["FLAGS_use_mkldnn"] = "0"
+
 import requests
 from openai import OpenAI
 
@@ -415,27 +419,37 @@ def test_audio_extract(video_path: str, cache_dir: str, **_) -> dict:
 
 
 def test_asr(video_path: str, cache_dir: str, **_) -> dict:
-    """Test ASR skill: transcribe first 60s of audio via faster-whisper."""
+    """Test ASR skill: transcribe first 120s of audio via faster-whisper."""
     log("=" * 60)
-    log("TEST: asr — Transcribe 60s audio clip (faster-whisper)")
+    log("TEST: asr — Transcribe 120s audio clip (faster-whisper)")
     log("=" * 60)
 
-    audio_path = get_short_audio(video_path, max_duration=60.0, cache_dir=cache_dir)
+    audio_path = get_short_audio(video_path, max_duration=120.0, cache_dir=cache_dir)
     log(f"  Audio clip: {audio_path}")
 
+    # Set HF_HUB_OFFLINE *before* importing faster_whisper, because
+    # huggingface_hub caches the offline flag at import time.
+    os.environ["HF_HUB_OFFLINE"] = "1"
     try:
         from faster_whisper import WhisperModel
     except ImportError:
+        os.environ.pop("HF_HUB_OFFLINE", None)
         log("  SKIP: faster_whisper not installed")
         return {"status": "skip", "reason": "faster_whisper not installed"}
 
     log("  Loading Whisper model (small) ...")
-    # Whisper model download needs HuggingFace access — try offline first,
-    # then attempt download with a short timeout to avoid 17-min hangs.
-    os.environ["HF_HUB_OFFLINE"] = "1"
+    # Auto-detect device: CUDA if available, otherwise CPU with int8
+    import torch
+    if torch.cuda.is_available():
+        _device, _compute = "cuda", "float16"
+    else:
+        _device, _compute = "cpu", "int8"
+    log(f"  Device: {_device}, compute_type: {_compute}")
+
+    # Try offline (cached model) first, then fall back to online download
     try:
-        model = WhisperModel("small", device="cuda", compute_type="float16")
-    except Exception:
+        model = WhisperModel("small", device=_device, compute_type=_compute)
+    except Exception as e1:
         os.environ.pop("HF_HUB_OFFLINE", None)
         # Quick connectivity check before attempting full download
         import socket
@@ -446,13 +460,13 @@ def test_asr(video_path: str, cache_dir: str, **_) -> dict:
             return {"status": "skip", "reason": "Whisper model not available (no cache, no internet)"}
         log("  Whisper model not cached locally, downloading ...")
         try:
-            model = WhisperModel("small", device="cuda", compute_type="float16")
+            model = WhisperModel("small", device=_device, compute_type=_compute)
         except Exception as e2:
             log(f"  SKIP: Cannot load Whisper model: {e2}")
             return {"status": "skip", "reason": f"Whisper model download failed: {e2}"}
     finally:
         os.environ.pop("HF_HUB_OFFLINE", None)
-    segments_iter, info = model.transcribe(audio_path, beam_size=5)
+    segments_iter, info = model.transcribe(audio_path, beam_size=5, vad_filter=True)
     log(f"  Language: {info.language} (prob={info.language_probability:.2f})")
 
     segments = []
@@ -670,28 +684,490 @@ def test_video_edit(video_path: str, cache_dir: str, **_) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ASR-First Pipeline Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_subtitle_parse(video_path: str, cache_dir: str, **_) -> dict:
+    """Test subtitle_parser skill: parse VTT/SRT subtitles into Transcript."""
+    log("=" * 60)
+    log("TEST: subtitle_parse — Parse VTT/SRT subtitles into Transcript")
+    log("=" * 60)
+
+    from agent.extensions.skills.subtitle_parser import parse_vtt, parse_srt, load_best_subtitle
+    from agent.core.schemas import SubtitleTrack
+
+    # Create realistic test VTT content (simulating auto-generated Chinese subtitles)
+    vtt_content = """WEBVTT
+Kind: captions
+Language: zh
+
+00:00:01.000 --> 00:00:05.500
+这是一部关于中国美食的纪录片
+
+00:00:05.500 --> 00:00:10.000
+中国有着丰富多彩的饮食文化
+
+00:00:10.000 --> 00:00:15.000
+从北方的面食到南方的米饭
+
+00:00:15.000 --> 00:00:20.000
+每个地区都有独特的风味和传统
+
+00:00:20.000 --> 00:00:25.000
+让我们一起探索中华美食的魅力
+
+00:00:25.000 --> 00:00:30.000
+第一站我们来到了四川
+
+00:00:30.000 --> 00:00:35.500
+<b>四川菜</b>以其<i>麻辣</i>闻名天下
+
+00:00:35.500 --> 00:00:40.000
+火锅是四川最具代表性的美食之一
+"""
+    vtt_path = os.path.join(cache_dir, "test_subtitle.zh.vtt")
+    with open(vtt_path, "w", encoding="utf-8") as f:
+        f.write(vtt_content)
+
+    # Test VTT parsing
+    log("  Parsing VTT file ...")
+    tr_vtt = parse_vtt(vtt_path, confidence=0.8)
+    log(f"  VTT: {len(tr_vtt.segments)} segments parsed")
+    for s in tr_vtt.segments[:5]:
+        log(f"    [{s.start:.1f}-{s.end:.1f}] {s.text[:50]}")
+    assert len(tr_vtt.segments) >= 5, f"Expected >= 5 segments, got {len(tr_vtt.segments)}"
+
+    # Verify HTML tag stripping
+    tag_segment = [s for s in tr_vtt.segments if "四川菜" in s.text]
+    if tag_segment:
+        assert "<b>" not in tag_segment[0].text, "HTML tags should be stripped"
+        assert "<i>" not in tag_segment[0].text, "HTML tags should be stripped"
+        log(f"  Tag stripping verified: '{tag_segment[0].text}'")
+
+    # Test SRT parsing
+    srt_content = """1
+00:00:01,000 --> 00:00:05,500
+This is a documentary about Chinese cuisine
+
+2
+00:00:05,500 --> 00:00:10,000
+China has a rich and diverse food culture
+
+3
+00:00:10,000 --> 00:00:15,000
+From northern noodles to southern rice dishes
+"""
+    srt_path = os.path.join(cache_dir, "test_subtitle.en.srt")
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write(srt_content)
+    tr_srt = parse_srt(srt_path)
+    log(f"  SRT: {len(tr_srt.segments)} segments parsed")
+    assert len(tr_srt.segments) == 3, f"Expected 3 SRT segments, got {len(tr_srt.segments)}"
+
+    # Test load_best_subtitle (manual > auto, en > zh)
+    tracks = [
+        SubtitleTrack(language="zh", source="auto", format="vtt", path=vtt_path),
+        SubtitleTrack(language="en", source="manual", format="srt", path=srt_path),
+    ]
+    best = load_best_subtitle(tracks)
+    assert best is not None, "Should pick a subtitle track"
+    assert best.language == "en", f"Should prefer manual en, got {best.language}"
+    log(f"  Best subtitle: language={best.language}, {len(best.segments)} segments (manual en preferred)")
+
+    # Test preference with only auto tracks
+    auto_tracks = [
+        SubtitleTrack(language="zh", source="auto", format="vtt", path=vtt_path),
+    ]
+    auto_best = load_best_subtitle(auto_tracks)
+    assert auto_best is not None
+    log(f"  Auto-only: language={auto_best.language}, {len(auto_best.segments)} segments")
+
+    log("  PASS")
+    return {"vtt_segments": len(tr_vtt.segments), "srt_segments": len(tr_srt.segments)}
+
+
+def test_content_sufficiency(video_path: str, cache_dir: str, **_) -> dict:
+    """Test content_sufficiency skill: assess if transcript is enough to skip visuals."""
+    log("=" * 60)
+    log("TEST: content_sufficiency — Assess transcript sufficiency")
+    log("=" * 60)
+
+    from agent.extensions.skills.content_sufficiency import assess_sufficiency
+    from agent.extensions.skills.video_probe import probe_video
+    from agent.core.schemas import Transcript, ASRSegment, ContentMetadata
+
+    meta = probe_video(video_path)
+    duration = meta.duration_sec
+    log(f"  Video duration: {duration:.1f}s ({duration/60:.1f} min)")
+
+    # Scenario 1: Rich transcript (simulating a documentary with narration)
+    log("  --- Scenario 1: Rich transcript (documentary with narration) ---")
+    rich_segs = []
+    for i in range(int(duration / 5)):
+        rich_segs.append(ASRSegment(
+            id=f"seg_{i:06d}", start=i * 5.0, end=i * 5.0 + 4.5,
+            text=f"这是一段关于中国美食文化的精彩解说第{i+1}部分内容非常丰富",
+            confidence=0.85,
+        ))
+    rich_tr = Transcript(segments=rich_segs, language="zh")
+    meta.content = ContentMetadata(title="舌尖上的中国 第一季第一集", tags=["美食", "纪录片", "中国"])
+    suff_rich = assess_sufficiency(rich_tr, meta)
+    log(f"  Coverage: {suff_rich.asr_coverage_ratio:.0%}")
+    log(f"  Words: {suff_rich.transcript_word_count}")
+    log(f"  Has subs: {suff_rich.has_subtitles}")
+    log(f"  Has meta: {suff_rich.has_content_metadata}")
+    log(f"  Sufficient: {suff_rich.is_sufficient}")
+    log(f"  Reason: {suff_rich.reason}")
+    assert suff_rich.is_sufficient, "Rich transcript should be sufficient"
+
+    # Scenario 2: Sparse transcript (simulating a music video)
+    log("  --- Scenario 2: Sparse transcript (music video, minimal speech) ---")
+    sparse_tr = Transcript(segments=[
+        ASRSegment(id="seg_0", start=10, end=12, text="Welcome", confidence=0.5),
+        ASRSegment(id="seg_1", start=100, end=103, text="Thank you", confidence=0.5),
+    ], language="en")
+    meta.content = None
+    suff_sparse = assess_sufficiency(sparse_tr, meta)
+    log(f"  Coverage: {suff_sparse.asr_coverage_ratio:.0%}")
+    log(f"  Words: {suff_sparse.transcript_word_count}")
+    log(f"  Sufficient: {suff_sparse.is_sufficient}")
+    log(f"  Reason: {suff_sparse.reason}")
+    assert not suff_sparse.is_sufficient, "Sparse transcript should not be sufficient"
+
+    # Scenario 3: Empty transcript
+    log("  --- Scenario 3: Empty transcript ---")
+    empty_tr = Transcript(segments=[], language=None)
+    suff_empty = assess_sufficiency(empty_tr, meta)
+    log(f"  Sufficient: {suff_empty.is_sufficient}")
+    log(f"  Reason: {suff_empty.reason}")
+    assert not suff_empty.is_sufficient, "Empty transcript should not be sufficient"
+
+    # Scenario 4: Force visual override
+    log("  --- Scenario 4: Force visual override ---")
+    suff_force = assess_sufficiency(rich_tr, meta, force_visual=True)
+    log(f"  Sufficient: {suff_force.is_sufficient} (force_visual=True)")
+    log(f"  Reason: {suff_force.reason}")
+    assert not suff_force.is_sufficient, "force_visual should override sufficiency"
+
+    # Scenario 5: Custom thresholds
+    log("  --- Scenario 5: Custom thresholds (strict: 80% coverage, 500 words) ---")
+    suff_strict = assess_sufficiency(rich_tr, meta, min_coverage_ratio=0.8, min_word_count=500)
+    log(f"  Coverage: {suff_strict.asr_coverage_ratio:.0%}, Words: {suff_strict.transcript_word_count}")
+    log(f"  Sufficient (strict): {suff_strict.is_sufficient}")
+    log(f"  Reason: {suff_strict.reason}")
+
+    log("  PASS")
+    return {
+        "rich_sufficient": suff_rich.is_sufficient,
+        "sparse_sufficient": suff_sparse.is_sufficient,
+        "empty_sufficient": suff_empty.is_sufficient,
+        "force_visual": suff_force.is_sufficient,
+        "strict_sufficient": suff_strict.is_sufficient,
+    }
+
+
+def test_asr_first_brief(video_path: str, cache_dir: str,
+                         base_url: str, model_name: str, **_) -> dict:
+    """Test ASR-first brief workflow: subtitles → ASR → sufficiency → conditional MLLM."""
+    log("=" * 60)
+    log("TEST: asr_first_brief — Full ASR-first brief pipeline")
+    log("=" * 60)
+
+    from agent.extensions.skills.video_probe import probe_video
+    from agent.extensions.skills.subtitle_parser import parse_vtt
+    from agent.extensions.skills.content_sufficiency import assess_sufficiency
+    from agent.extensions.skills.timeline_builder import build_timeline
+    from agent.core.schemas import (
+        VideoAsset, VideoSource, VideoMetadata, ContentMetadata,
+        FrameSet, FrameStrategy, Transcript, ASRSegment, SubtitleTrack,
+    )
+
+    # Step 1: Probe video
+    log("  Step 1: Probing video metadata ...")
+    meta = probe_video(video_path)
+    log(f"    Duration: {meta.duration_sec:.1f}s, Resolution: {meta.width}x{meta.height}, Audio: {meta.has_audio}")
+
+    # Step 2: Simulate content metadata (as if from YouTube info.json)
+    log("  Step 2: Attaching content metadata ...")
+    content_meta = ContentMetadata(
+        title="舌尖上的中国 第一季 第一集",
+        description="中国美食纪录片，展现中国各地的饮食文化和烹饪技艺",
+        uploader="CCTV纪录频道",
+        tags=["美食", "纪录片", "中国文化", "烹饪"],
+        categories=["Documentary"],
+    )
+    meta.content = content_meta
+    log(f"    Title: {content_meta.title}")
+    log(f"    Tags: {content_meta.tags}")
+
+    # Step 3: ASR on first 60s (simulating real ASR)
+    log("  Step 3: Running ASR on first 60s ...")
+    audio_path = get_short_audio(video_path, max_duration=60.0, cache_dir=cache_dir)
+
+    transcript = None
+    try:
+        # Set HF_HUB_OFFLINE before import to prevent network calls
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        from faster_whisper import WhisperModel
+        import torch
+        if torch.cuda.is_available():
+            _device, _compute = "cuda", "float16"
+        else:
+            _device, _compute = "cpu", "int8"
+        log(f"    Device: {_device}, compute_type: {_compute}")
+        try:
+            whisper = WhisperModel("small", device=_device, compute_type=_compute)
+        except Exception:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            whisper = WhisperModel("small", device=_device, compute_type=_compute)
+        finally:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        t0_asr = time.time()
+        segments_iter, info = whisper.transcribe(audio_path, vad_filter=True)
+        segs = []
+        for i, s in enumerate(segments_iter):
+            segs.append(ASRSegment(
+                id=f"seg_{i:06d}", start=float(s.start), end=float(s.end),
+                text=s.text.strip(), confidence=getattr(s, "avg_logprob", None),
+            ))
+        transcript = Transcript(segments=segs, language=getattr(info, "language", None))
+        log(f"    ASR: {len(transcript.segments)} segments, language={transcript.language}")
+        for s in transcript.segments[:3]:
+            log(f"      [{s.start:.1f}-{s.end:.1f}] {s.text[:60]}")
+        if len(transcript.segments) > 3:
+            log(f"      ... ({len(transcript.segments)} total)")
+    except ImportError:
+        log("    Whisper not available, using synthetic transcript")
+        # Synthetic transcript for a food documentary
+        segs = []
+        texts = [
+            "中国拥有世界上最丰富多样的饮食文化",
+            "从南到北从东到西每个地区都有独特的美食",
+            "这些美食不仅是味觉的享受更是文化的传承",
+            "在这片古老的土地上食物连接着人与自然",
+            "让我们一起开始这段美食之旅",
+            "第一站我们来到云南的大山深处",
+            "这里有着最原始的食材和烹饪方式",
+            "松茸是这里最珍贵的食材之一",
+        ]
+        for i, txt in enumerate(texts):
+            segs.append(ASRSegment(
+                id=f"seg_{i:06d}", start=i * 7.0, end=i * 7.0 + 6.5,
+                text=txt, confidence=0.85,
+            ))
+        transcript = Transcript(segments=segs, language="zh")
+        log(f"    Synthetic: {len(transcript.segments)} segments")
+
+    # Step 4: Sufficiency check
+    log("  Step 4: Checking content sufficiency ...")
+    sufficiency = assess_sufficiency(transcript, meta)
+    log(f"    Coverage: {sufficiency.asr_coverage_ratio:.0%}")
+    log(f"    Words: {sufficiency.transcript_word_count}")
+    log(f"    Has metadata: {sufficiency.has_content_metadata}")
+    log(f"    SUFFICIENT: {sufficiency.is_sufficient}")
+    log(f"    Reason: {sufficiency.reason}")
+
+    # Step 5: Conditional visual processing
+    if sufficiency.is_sufficient:
+        log("  Step 5: SKIPPING MLLM visual processing (transcript sufficient)")
+        frames = FrameSet(items=[], strategy=FrameStrategy(type="skipped", params={}))
+        log(f"    FrameSet: {len(frames.items)} items, strategy={frames.strategy.type}")
+    else:
+        log("  Step 5: Would run MLLM visual processing (transcript insufficient)")
+        # For the test, just sample frames without captioning to show the flow
+        raw_frames = extract_frames(
+            get_short_clip(video_path, max_duration=60.0, cache_dir=cache_dir),
+            os.path.join(cache_dir, "frames_asr_first"),
+            fps=0.5, max_frames=4,
+        )
+        from agent.core.schemas import FrameItem
+        frame_items = [FrameItem(id=f["id"], ts=f["ts"], path=f["path"],
+                                 caption="(would be captioned by MLLM)") for f in raw_frames]
+        frames = FrameSet(items=frame_items, strategy=FrameStrategy(type="scene", params={}))
+        log(f"    FrameSet: {len(frames.items)} frames sampled for captioning")
+
+    # Step 6: Timeline building with content metadata
+    if base_url and model_name:
+        log("  Step 6: Building timeline with content metadata context ...")
+        timeline = build_timeline(meta, transcript, frames, model_name, base_url,
+                                  content_metadata=content_meta)
+        if isinstance(timeline, dict):
+            chapters = timeline.get("chapters", [])
+            events = timeline.get("events", [])
+            log(f"    Timeline: {len(chapters)} chapters, {len(events)} events")
+            for ch in chapters[:3]:
+                title = ch.get("title", "?")
+                log(f"      [{ch.get('start', 0):.0f}-{ch.get('end', 0):.0f}s] {title}")
+        else:
+            log(f"    Timeline (raw): {str(timeline)[:150]}")
+    else:
+        log("  Step 6: SKIP timeline (no MLLM endpoint)")
+        timeline = {"chapters": [], "events": []}
+
+    # Summary
+    log("")
+    log("  ┌──────────────────────────────────────────────┐")
+    log("  │           ASR-First Pipeline Summary          │")
+    log("  ├──────────────────────────────────────────────┤")
+    log(f"  │ Video:     {meta.duration_sec:.0f}s, {meta.width}x{meta.height}{'':>16}│")
+    log(f"  │ Title:     {(content_meta.title or '?')[:33]:33}│")
+    log(f"  │ ASR segs:  {len(transcript.segments):<35}│")
+    log(f"  │ Coverage:  {sufficiency.asr_coverage_ratio:.0%}{'':<33}│")
+    log(f"  │ Words:     {sufficiency.transcript_word_count:<35}│")
+    log(f"  │ Sufficient:{(' YES' if sufficiency.is_sufficient else ' NO'):<35}│")
+    skipped = "SKIPPED" if sufficiency.is_sufficient else f"{len(frames.items)} frames"
+    log(f"  │ MLLM:      {skipped:<35}│")
+    log("  └──────────────────────────────────────────────┘")
+
+    log("  PASS")
+    return {
+        "duration": meta.duration_sec,
+        "asr_segments": len(transcript.segments),
+        "coverage": sufficiency.asr_coverage_ratio,
+        "word_count": sufficiency.transcript_word_count,
+        "sufficient": sufficiency.is_sufficient,
+        "visual_skipped": sufficiency.is_sufficient,
+        "frame_count": len(frames.items),
+    }
+
+
+def test_metadata_extract(video_path: str, cache_dir: str, **_) -> dict:
+    """Test video metadata extraction: parse yt-dlp info.json."""
+    log("=" * 60)
+    log("TEST: metadata_extract — Parse video metadata from info.json")
+    log("=" * 60)
+
+    from agent.extensions.skills.video_download import parse_info_json, find_subtitle_files
+    from agent.core.schemas import ContentMetadata
+
+    # Create a realistic info.json (simulating yt-dlp output)
+    info = {
+        "title": "舌尖上的中国 第一季 第一集 自然的馈赠",
+        "description": "《舌尖上的中国》是中国中央电视台出品的美食类纪录片...",
+        "uploader": "CCTV纪录",
+        "channel": "CCTV纪录频道",
+        "upload_date": "20120514",
+        "duration": 2947.0,
+        "view_count": 15000000,
+        "tags": ["美食", "纪录片", "中国", "舌尖上的中国", "CCTV"],
+        "categories": ["Documentary", "Food"],
+    }
+    info_path = os.path.join(cache_dir, "test_info.json")
+    with open(info_path, "w", encoding="utf-8") as f:
+        json.dump(info, f, ensure_ascii=False, indent=2)
+
+    # Parse info.json
+    log("  Parsing info.json ...")
+    cm = parse_info_json(info_path)
+    assert cm is not None, "Should parse info.json"
+    log(f"    Title:       {cm.title}")
+    log(f"    Uploader:    {cm.uploader}")
+    log(f"    Upload date: {cm.upload_date}")
+    log(f"    Duration:    {cm.duration_from_source}s")
+    log(f"    Views:       {cm.view_count:,}")
+    log(f"    Tags:        {cm.tags}")
+    log(f"    Categories:  {cm.categories}")
+    assert cm.title == info["title"], "Title mismatch"
+    assert len(cm.tags) == 5, f"Expected 5 tags, got {len(cm.tags)}"
+
+    # Test subtitle file discovery
+    log("  Testing subtitle file discovery ...")
+    # Create fake subtitle files
+    for name in ["source.zh.vtt", "source.en.vtt", "source.ja.auto.vtt"]:
+        with open(os.path.join(cache_dir, name), "w") as f:
+            f.write("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntest\n")
+    tracks = find_subtitle_files(cache_dir)
+    log(f"    Found {len(tracks)} subtitle tracks:")
+    for t in tracks:
+        log(f"      {t.language} ({t.source}) — {t.format} — {os.path.basename(t.path)}")
+    assert len(tracks) >= 3, f"Expected >= 3 tracks, got {len(tracks)}"
+
+    # Verify auto-detection
+    auto_tracks = [t for t in tracks if t.source == "auto"]
+    manual_tracks = [t for t in tracks if t.source == "manual"]
+    log(f"    Manual: {len(manual_tracks)}, Auto: {len(auto_tracks)}")
+
+    log("  PASS")
+    return {
+        "title": cm.title,
+        "tags": cm.tags,
+        "subtitle_tracks": len(tracks),
+        "auto_tracks": len(auto_tracks),
+        "manual_tracks": len(manual_tracks),
+    }
+
+
+def test_needs_visual(video_path: str, **_) -> dict:
+    """Test needs_visual heuristic for targeted visual lookup in Q&A."""
+    log("=" * 60)
+    log("TEST: needs_visual — Visual question detection heuristic")
+    log("=" * 60)
+
+    from agent.extensions.workflows.ask import needs_visual
+
+    test_cases = [
+        # (question, expected, reason)
+        ("What is the main topic discussed in this video?", False, "text-only question"),
+        ("Who is speaking in this video?", False, "speaker identity from ASR"),
+        ("What does the presenter show on the board?", True, "visual: 'show', 'board'"),
+        ("What equation is written on the slide?", True, "visual: 'equation', 'slide'"),
+        ("Describe the scene at 5:30", True, "visual: 'scene'"),
+        ("What color is the background?", True, "visual: 'color', 'background'"),
+        ("What are the key conclusions?", False, "text-only question"),
+        ("What diagram is displayed?", True, "visual: 'diagram', 'display'"),
+        ("画面上显示了什么?", True, "visual: '画面', '显示'"),
+        ("这个视频讲了什么内容?", False, "text-only Chinese question"),
+        ("黑板上的公式是什么?", True, "visual: '黑板', '公式'"),
+        ("What food is shown on the screen?", True, "visual: 'show', 'screen'"),
+    ]
+
+    passed_count = 0
+    for question, expected, reason in test_cases:
+        result = needs_visual(question)
+        status = "✓" if result == expected else "✗"
+        if result == expected:
+            passed_count += 1
+        log(f"  {status} needs_visual={result:<5} (expect={expected:<5}) | {reason}")
+        log(f"    Q: {question}")
+
+    log(f"  {passed_count}/{len(test_cases)} heuristic checks correct")
+    assert passed_count == len(test_cases), f"Some heuristic checks failed"
+    log("  PASS")
+    return {"total": len(test_cases), "correct": passed_count}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
 
 ALL_TESTS = [
-    "video_probe", "frame_sample", "frame_caption", "video_caption",
-    "audio_extract", "asr", "ocr", "object_detection",
+    "video_probe", "frame_sample",
+    "audio_extract", "asr",
+    "ocr", "object_detection",
+    "subtitle_parse", "metadata_extract", "content_sufficiency",
+    "needs_visual", "asr_first_brief",
+    "frame_caption", "video_caption",
     "timeline", "video_qa", "highlights", "video_edit",
 ]
 
 TEST_MAP = {
-    "video_probe":      test_video_probe,
-    "frame_sample":     test_frame_sample,
-    "frame_caption":    test_frame_caption,
-    "video_caption":    test_video_caption,
-    "audio_extract":    test_audio_extract,
-    "asr":              test_asr,
-    "ocr":              test_ocr,
-    "object_detection": test_object_detection,
-    "timeline":         test_timeline,
-    "video_qa":         test_video_qa,
-    "highlights":       test_highlights,
-    "video_edit":       test_video_edit,
+    "video_probe":          test_video_probe,
+    "frame_sample":         test_frame_sample,
+    "frame_caption":        test_frame_caption,
+    "video_caption":        test_video_caption,
+    "audio_extract":        test_audio_extract,
+    "asr":                  test_asr,
+    "subtitle_parse":       test_subtitle_parse,
+    "metadata_extract":     test_metadata_extract,
+    "content_sufficiency":  test_content_sufficiency,
+    "needs_visual":         test_needs_visual,
+    "asr_first_brief":      test_asr_first_brief,
+    "ocr":                  test_ocr,
+    "object_detection":     test_object_detection,
+    "timeline":             test_timeline,
+    "video_qa":             test_video_qa,
+    "highlights":           test_highlights,
+    "video_edit":           test_video_edit,
 }
 
 
@@ -726,7 +1202,7 @@ def main():
     log("Step 1: Finding model serving endpoint ...")
 
     # Check which tests actually need MLLM
-    mllm_tests = {"frame_caption", "video_caption", "timeline", "video_qa", "highlights"}
+    mllm_tests = {"frame_caption", "video_caption", "timeline", "video_qa", "highlights", "asr_first_brief"}
     needs_mllm = bool(set(args.tests) & mllm_tests)
 
     base_url = None

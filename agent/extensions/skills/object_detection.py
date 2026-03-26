@@ -1,9 +1,16 @@
-from ultralytics import YOLO
 import cv2
 from typing import List, Dict, Any
+from agent.config import get_model_path
 
-# 初始化YOLO模型（使用预训练的YOLOv8）
-model = YOLO('yolov8n.pt')  # nano版本，轻量级；可改为'yolov8s.pt'等
+_model = None
+
+def _get_model():
+    """Lazy-init YOLO so import doesn't crash if model file is missing."""
+    global _model
+    if _model is None:
+        from ultralytics import YOLO
+        _model = YOLO(get_model_path("yolov8n.pt"))
+    return _model
 
 def detect_objects_in_frame(frame_path: str) -> List[Dict[str, Any]]:
     """
@@ -15,7 +22,7 @@ def detect_objects_in_frame(frame_path: str) -> List[Dict[str, Any]]:
     Returns:
         List[Dict]: 检测到的物体列表，每个包含类别、置信度、边界框。
     """
-    results = model(frame_path)
+    results = _get_model()(frame_path)
     detections = []
     for result in results:
         for box in result.boxes:
