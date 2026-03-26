@@ -2,7 +2,10 @@ import cv2
 import asyncio
 from typing import Callable, Any, Tuple, Dict
 from agent.extensions.skills.vision_caption import caption_frame  # 假设有caption函数
-from agent.extensions.skills.object_detection import detect_objects_in_frame
+try:
+    from agent.extensions.skills.object_detection import detect_objects_in_frame
+except ImportError:
+    detect_objects_in_frame = None
 from agent.config import load_models_config, load_workflows_config
 
 def process_live_stream(source: str = None, stream_url: str = None, callback: Callable[[Dict[str, Any]], None] = None,
@@ -76,7 +79,7 @@ def analyze_frame_heavy(frame_path: str) -> Dict[str, Any]:
     heavy_model = models_config.get('mllm', {}).get('heavy', {})
     # TODO: Use heavy model for captioning
     caption = caption_frame(frame_path, model_name=heavy_model.get('model_name'), base_url=heavy_model.get('base_url'))
-    objects = detect_objects_in_frame(frame_path)
+    objects = detect_objects_in_frame(frame_path) if detect_objects_in_frame else []
     # 添加OCR等
     from agent.extensions.skills.ocr import extract_text_from_frame
     ocr = extract_text_from_frame(frame_path)

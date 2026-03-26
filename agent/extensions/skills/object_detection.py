@@ -1,13 +1,32 @@
+import logging
 import cv2
 from typing import List, Dict, Any
 from agent.config import get_model_path
 
+logger = logging.getLogger(__name__)
+
 _model = None
+_ultralytics_available = None
+
+def _check_ultralytics():
+    global _ultralytics_available
+    if _ultralytics_available is None:
+        try:
+            import ultralytics  # noqa: F401
+            _ultralytics_available = True
+        except ImportError:
+            _ultralytics_available = False
+    return _ultralytics_available
 
 def _get_model():
-    """Lazy-init YOLO so import doesn't crash if model file is missing."""
+    """Lazy-init YOLO so import doesn't crash if ultralytics is not installed."""
     global _model
     if _model is None:
+        if not _check_ultralytics():
+            raise ImportError(
+                "ultralytics is required for object detection but is not installed. "
+                "Install it with: pip install vidcopilot[detection]"
+            )
         from ultralytics import YOLO
         _model = YOLO(get_model_path("yolov8n.pt"))
     return _model

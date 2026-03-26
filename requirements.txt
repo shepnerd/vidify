@@ -33,8 +33,8 @@ pytesseract>=0.3.10
 librosa>=0.10.0
 fer>=22.0.0
 
-# 新增：对象检测
-ultralytics>=8.0.0
+# 对象检测（AGPL-licensed, optional — install with: pip install vidcopilot[detection])
+# ultralytics>=8.0.0
 
 # 新增：翻译（使用transformers，已有）
 

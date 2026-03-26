@@ -8,6 +8,9 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=requirements,
+    extras_require={
+        "detection": ["ultralytics>=8.0.0"],
+    },
     entry_points={
         'console_scripts': [
             'vidcopilot=agent.main:cli',

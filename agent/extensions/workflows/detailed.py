@@ -13,7 +13,10 @@ from agent.extensions.skills.persist import save_analysis
 from agent.extensions.skills.web_search import deep_search_enhance
 from agent.extensions.skills.ocr import extract_text_from_video_frames
 from agent.extensions.skills.emotion_analysis import analyze_emotions
-from agent.extensions.skills.object_detection import detect_objects_in_video_frames
+try:
+    from agent.extensions.skills.object_detection import detect_objects_in_video_frames
+except ImportError:
+    detect_objects_in_video_frames = None
 from agent.extensions.skills.translation import translate_asr_results
 from agent.core.schemas import FrameStrategy, FrameSet, Transcript
 from agent.config import load_models_config, load_workflows_config
@@ -115,7 +118,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     frame_paths = [f.path for f in frames.items]
 
     ocr_results = extract_text_from_video_frames(frame_paths) if frame_paths else {}
-    object_results = detect_objects_in_video_frames(frame_paths) if frame_paths else {}
+    object_results = detect_objects_in_video_frames(frame_paths) if (detect_objects_in_video_frames and frame_paths) else {}
     emotion_results = analyze_emotions(audio_path, frame_paths) if audio_path else {}
 
     # --- Step 6: Translation ---
