@@ -1,29 +1,13 @@
-import base64, io, json, math, subprocess
-from PIL import Image
+import json, math, subprocess
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client
 from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.utils import (
-    get_video_duration, split_video_segment, make_video_content,
+    get_video_duration, split_video_segment, make_video_content, img_to_data_url,
 )
 
 def supports_video(model_name: str) -> bool:
     return "qwen" in model_name.lower() or "video" in model_name.lower()
-
-def _resize_limit(img: Image.Image, max_w=256, max_h=144) -> Image.Image:
-    w, h = img.size
-    scale = min(max_w / w, max_h / h, 1.0)
-    if scale < 1.0:
-        img = img.resize((int(w * scale), int(h * scale)), Image.BICUBIC)
-    return img
-
-def _img_to_data_url(path: str, max_w=256, max_h=144, fmt="JPEG", quality=85) -> str:
-    img = Image.open(path).convert("RGB")
-    img = _resize_limit(img, max_w=max_w, max_h=max_h)
-    buf = io.BytesIO()
-    img.save(buf, format=fmt, quality=quality)
-    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    return f"data:image/{fmt.lower()};base64,{b64}"
 
 def caption_frames(frames, model_name: str, base_url: str,
                    max_frames: int = 128, batch_size: int = 8,
@@ -71,7 +55,7 @@ def caption_frames(frames, model_name: str, base_url: str,
             )}]
 
             for it in batch:
-                data_url = _img_to_data_url(it.path, max_w=max_w, max_h=max_h)
+                data_url = img_to_data_url(it.path, max_w=max_w, max_h=max_h)
                 content.append({"type": "image", "image": data_url})  # data-url image [2]
                 content.append({"type": "text", "text": f"frame_id={it.id}"})
 

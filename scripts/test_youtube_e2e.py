@@ -26,233 +26,43 @@ Usage:
   python scripts/test_youtube_e2e.py --tests frames qa
 """
 import argparse
-import base64
-import glob as globmod
-import hashlib
-import io
 import json
 import os
-import select
-import subprocess
 import sys
-import textwrap
 import time
 
 # ── Unset cluster proxy env vars BEFORE importing HTTP libraries ──────────────
-# The cluster service-mesh proxy cannot forward multimodal POST requests.
-# Direct pod-to-pod connections work fine, so we bypass the proxy entirely.
 for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
     os.environ.pop(_key, None)
 
-import requests
-from openai import OpenAI
-from PIL import Image
+import subprocess
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# ── Project setup ─────────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.expanduser(
-    "~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
-    "/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
-)
+sys.path.insert(0, PROJECT_ROOT)
+
 CACHE_ROOT = os.path.join(PROJECT_ROOT, "cache")
-SERVING_INFO_DIR = os.path.join(CACHE_ROOT, ".serving")
-SERVING_IP_FILE = os.path.join(SERVING_INFO_DIR, "serving_ip.txt")
-SERVING_LOG_FILE = os.path.join(SERVING_INFO_DIR, "vllm.log")
 VLLM_PORT = 8000
 
 DEFAULT_YOUTUBE = "https://www.youtube.com/watch?v=BoC5MY_7aDk"
 DEFAULT_QUESTION = "Summarize the key points of this video and provide timestamps."
+
+# ── Shared utilities ─────────────────────────────────────────────────────────
+from agent.extensions.utils import (
+    get_video_duration, split_video_segment, get_short_clip,
+    extract_frames, img_to_data_url,
+)
+from agent.extensions.utils.cache import sha1
+from agent.extensions.utils.serving import (
+    probe_vllm, find_existing_service, read_serving_ip,
+    launch_serving, wait_for_serving, get_model_name, make_client,
+)
 
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
 def log(msg: str):
     print(f"[test] {msg}", flush=True)
-
-
-def sha1(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()
-
-
-# ── vLLM Service Discovery & Launch ───────────────────────────────────────────
-
-def probe_vllm(base_url: str, timeout: float = 5.0) -> bool:
-    """Check if a vLLM service is alive at base_url."""
-    try:
-        url = base_url.rstrip("/")
-        if not url.endswith("/v1"):
-            url += "/v1"
-        resp = requests.get(f"{url}/models", timeout=timeout)
-        if resp.status_code == 200:
-            data = resp.json()
-            models = [m["id"] for m in data.get("data", [])]
-            log(f"  Found serving at {url} with models: {models}")
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def find_existing_service(candidates: list) -> str | None:
-    """Probe a list of candidate base_urls, return the first alive one."""
-    for url in candidates:
-        log(f"  Probing {url} ...")
-        if probe_vllm(url):
-            return url
-    return None
-
-
-def read_serving_ip() -> str | None:
-    """Read the serving IP written by a previously launched GPU job."""
-    if os.path.isfile(SERVING_IP_FILE):
-        ip = open(SERVING_IP_FILE).read().strip()
-        if ip:
-            return ip
-    return None
-
-
-def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
-    """
-    Launch a vLLM serving job on a GPU node via scripts/rl.sh (non-detached).
-    The GPU job writes its IP to a shared-filesystem file so we can find it.
-    Returns the Popen process so we can monitor stderr for scheduling errors.
-    """
-    os.makedirs(SERVING_INFO_DIR, exist_ok=True)
-    if os.path.isfile(SERVING_IP_FILE):
-        os.remove(SERVING_IP_FILE)
-
-    if tp is None:
-        tp = gpu
-
-    # The GPU node writes its IP to shared storage, then starts vLLM.
-    # vLLM stdout/stderr are teed to a log file on shared storage for debugging.
-    # We escape braces for awk inside the f-string.
-    inner_script = (
-        f'IP=$(hostname -I | awk \'{{print $1}}\'); '
-        f'echo "$IP" > {SERVING_IP_FILE}; '
-        f'echo "[serving] Node IP: $IP, starting vLLM ..." | tee {SERVING_LOG_FILE}; '
-        f'exec vllm serve {MODEL_PATH} '
-        f'--host 0.0.0.0 --port {VLLM_PORT} '
-        f'--tensor-parallel-size {tp} '
-        f'--max-model-len 32768 '
-        f'--allowed-local-media-path {CACHE_ROOT} '
-        f'2>&1 | tee -a {SERVING_LOG_FILE}'
-    )
-
-    # Run WITHOUT -d (detach) so we keep the rlaunch process alive and can
-    # read its stderr for scheduling failures (quota, pending, OOM, etc.).
-    rl_sh = os.path.join(PROJECT_ROOT, "scripts", "rl.sh")
-    cmd = [
-        rl_sh,
-        "-gpu", str(gpu),
-        "--",
-        "bash", "-c", inner_script,
-    ]
-    log(f"Launching vLLM serving with {gpu} GPUs (TP={tp}) ...")
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    log(f"  Launched rlaunch process (pid={proc.pid})")
-    return proc
-
-
-# Patterns in rlaunch stderr that indicate the worker will never start.
-_FATAL_PATTERNS = [
-    "insufficient group quota",
-    "does not pass quotaCheck",
-    "denied the request",
-    "Insufficient resources",
-    "tasks failed",
-]
-
-
-def _drain_stderr(proc: subprocess.Popen) -> str:
-    """Non-blocking read of all currently available stderr from *proc*."""
-    chunks = []
-    while True:
-        ready, _, _ = select.select([proc.stderr], [], [], 0)
-        if not ready:
-            break
-        chunk = proc.stderr.read1(4096) if hasattr(proc.stderr, "read1") else proc.stderr.read(4096)
-        if not chunk:
-            break
-        chunks.append(chunk.decode("utf-8", errors="replace"))
-    return "".join(chunks)
-
-
-def _check_rlaunch_health(proc: subprocess.Popen) -> None:
-    """Read rlaunch stderr and abort early on fatal scheduling errors."""
-    stderr_text = _drain_stderr(proc)
-    if stderr_text:
-        # Print rlaunch log lines so the user can see progress
-        for line in stderr_text.strip().splitlines():
-            log(f"  [rlaunch] {line.strip()}")
-
-        for pattern in _FATAL_PATTERNS:
-            if pattern in stderr_text:
-                log(f"  FATAL: Worker scheduling failed — found '{pattern}' in rlaunch output.")
-                log("  Hint: Check cluster quota (CPU/memory/GPU) with your admin.")
-                proc.terminate()
-                sys.exit(1)
-
-    # If the process exited, check return code
-    ret = proc.poll()
-    if ret is not None and ret != 0:
-        # Process already exited with error — drain any remaining stderr
-        remaining = proc.stderr.read().decode("utf-8", errors="replace")
-        if remaining:
-            for line in remaining.strip().splitlines():
-                log(f"  [rlaunch] {line.strip()}")
-        log(f"  FATAL: rlaunch exited with code {ret}.")
-        sys.exit(1)
-
-
-def wait_for_serving(
-    proc: subprocess.Popen,
-    timeout: int = 600,
-    poll_interval: int = 10,
-) -> str:
-    """Wait for the GPU job to write its IP and for vLLM to become ready.
-    Monitors *proc* (the rlaunch process) for early failures.
-    Returns the base_url."""
-    log(f"Waiting for serving to start (timeout={timeout}s) ...")
-    start = time.time()
-
-    # Phase 1: wait for IP file from GPU node
-    ip = None
-    while time.time() - start < timeout:
-        _check_rlaunch_health(proc)
-        ip = read_serving_ip()
-        if ip:
-            log(f"  GPU node IP: {ip}")
-            break
-        time.sleep(poll_interval)
-    else:
-        _check_rlaunch_health(proc)  # one last check for diagnostics
-        log("ERROR: Timed out waiting for GPU node to write its IP.")
-        log("  Hint: The worker pod may be stuck in Pending state.")
-        log("        Check cluster quota and node availability.")
-        proc.terminate()
-        sys.exit(1)
-
-    # Phase 2: wait for vLLM /v1/models to respond
-    base_url = f"http://{ip}:{VLLM_PORT}/v1"
-    while time.time() - start < timeout:
-        _check_rlaunch_health(proc)
-        if probe_vllm(base_url, timeout=10):
-            log(f"  vLLM is ready at {base_url}")
-            return base_url
-        log(f"  vLLM not ready yet, retrying in {poll_interval}s ...")
-        time.sleep(poll_interval)
-
-    _check_rlaunch_health(proc)
-    log("ERROR: Timed out waiting for vLLM to become ready.")
-    log(f"  The GPU node ({ip}) was found but vLLM never responded on port {VLLM_PORT}.")
-    log("  Possible causes: model loading OOM, missing dependencies, or vLLM crash.")
-    proc.terminate()
-    sys.exit(1)
 
 
 # ── YouTube Download ───────────────────────────────────────────────────────────
@@ -272,88 +82,6 @@ def download_youtube_video(url: str, out_dir: str) -> str:
         sys.exit(1)
     log(f"  Downloaded to: {out_path}")
     return out_path
-
-
-# ── Video Utilities (self-contained, no broken imports) ────────────────────────
-
-def get_video_duration(video_path: str) -> float:
-    """Get video duration in seconds via ffprobe."""
-    result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
-        capture_output=True, text=True,
-    )
-    return float(json.loads(result.stdout)["format"]["duration"])
-
-
-def extract_frames(video_path: str, out_dir: str, fps: float = 0.5, max_frames: int = 8) -> list:
-    """Extract frames from video at given fps. Returns list of (path, timestamp)."""
-    os.makedirs(out_dir, exist_ok=True)
-    out_tpl = os.path.join(out_dir, "f_%06d.jpg")
-    cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"fps={fps},scale=256:144:force_original_aspect_ratio=decrease",
-        "-q:v", "2", out_tpl,
-    ]
-    subprocess.run(cmd, capture_output=True, text=True, check=True)
-    paths = sorted(globmod.glob(os.path.join(out_dir, "f_*.jpg")))[:max_frames]
-    frames = []
-    for i, p in enumerate(paths):
-        ts = (i + 1) / fps  # frame number starts at 1 in ffmpeg
-        frames.append({"path": p, "ts": ts, "id": f"f_{i:04d}"})
-    return frames
-
-
-def img_to_data_url(path: str, max_w: int = 256, max_h: int = 144) -> str:
-    """Convert an image to a base64 data URL."""
-    img = Image.open(path).convert("RGB")
-    w, h = img.size
-    scale = min(max_w / w, max_h / h, 1.0)
-    if scale < 1.0:
-        img = img.resize((int(w * scale), int(h * scale)), Image.BICUBIC)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{b64}"
-
-
-def split_video_segment(video_path: str, start: float, duration: float, out_path: str):
-    """Extract a segment from a video, re-encoding to ensure readable output."""
-    subprocess.run(
-        ["ffmpeg", "-y", "-ss", str(start), "-i", video_path, "-t", str(duration),
-         "-vf", "scale=640:-2", "-c:v", "libx264", "-preset", "ultrafast",
-         "-an", out_path],
-        capture_output=True, check=True,
-    )
-
-
-# ── Model Helpers ──────────────────────────────────────────────────────────────
-
-def get_model_name(base_url: str) -> str:
-    """Get the first available model name from vLLM."""
-    url = base_url.rstrip("/")
-    resp = requests.get(f"{url}/models", timeout=10)
-    resp.raise_for_status()
-    models = resp.json().get("data", [])
-    if not models:
-        raise RuntimeError("No models available on the serving endpoint")
-    return models[0]["id"]
-
-
-def make_client(base_url: str, timeout: float = 120.0) -> OpenAI:
-    return OpenAI(base_url=base_url, api_key="EMPTY", timeout=timeout)
-
-
-def get_short_clip(video_path: str, max_duration: float = 30.0) -> str:
-    """Return a short clip path for video tests. Re-encodes to ensure readability."""
-    duration = get_video_duration(video_path)
-    if duration <= max_duration:
-        return video_path
-    clip_path = os.path.join(os.path.dirname(video_path), f"clip_{int(max_duration)}s.mp4")
-    if os.path.isfile(clip_path) and os.path.getsize(clip_path) > 0:
-        return clip_path
-    log(f"  Extracting {max_duration:.0f}s clip from {duration:.0f}s video ...")
-    split_video_segment(video_path, 0, max_duration, clip_path)
-    return clip_path
 
 
 # ── Test Functions ─────────────────────────────────────────────────────────────
@@ -596,7 +324,7 @@ def main():
     base_url = None
 
     if args.api_base:
-        if probe_vllm(args.api_base):
+        if probe_vllm(args.api_base, log_fn=log):
             base_url = args.api_base.rstrip("/")
             if not base_url.endswith("/v1"):
                 base_url += "/v1"
@@ -609,14 +337,14 @@ def main():
         if prev_ip:
             candidates.insert(0, f"http://{prev_ip}:{VLLM_PORT}/v1")
 
-        base_url = find_existing_service(candidates)
+        base_url = find_existing_service(candidates, log_fn=log)
         if not base_url:
             if args.skip_serve:
                 log("ERROR: No serving endpoint found and --skip-serve is set.")
                 sys.exit(1)
             log("No existing service found. Launching new vLLM serving ...")
-            serve_proc = launch_serving(gpu=args.gpu, tp=args.tp)
-            base_url = wait_for_serving(serve_proc, timeout=600)
+            serve_proc = launch_serving(gpu=args.gpu, tp=args.tp, log_fn=log)
+            base_url = wait_for_serving(serve_proc, timeout=600, log_fn=log)
 
     log(f"Using model endpoint: {base_url}")
     model_name = get_model_name(base_url)
