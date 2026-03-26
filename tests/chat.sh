@@ -6,8 +6,8 @@
 
 set -euo pipefail
 
-URL="http://100.101.64.27:8000"
-MODEL="/root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+URL="http://localhost:8000"
+MODEL="$HOME/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
 INPUT=""
 
 usage() {

@@ -1,1 +1,1 @@
-rl.sh -gpu 2 -- vllm serve /root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --host 0.0.0.0 --port 8000 --tensor-parallel-size 2 --max-model-len 32768
+rl.sh -gpu 2 -- vllm serve $HOME/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --host 0.0.0.0 --port 8000 --tensor-parallel-size 2 --max-model-len 32768

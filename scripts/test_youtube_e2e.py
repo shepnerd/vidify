@@ -4,7 +4,7 @@ End-to-end test for YouTube video understanding with auto model serving.
 
 This script:
   1. Probes for an existing vLLM service (user-specified or common endpoints)
-  2. If none found, launches a GPU job via rl.sh to start vLLM serving
+  2. If none found, launches a GPU job via scripts/rl.sh to start vLLM serving
   3. Downloads a YouTube video (requires internet on this node)
   4. Tests video understanding: frame captioning, video captioning, Q&A
 
@@ -13,7 +13,7 @@ Usage:
   python scripts/test_youtube_e2e.py
 
   # Specify existing serving endpoint
-  python scripts/test_youtube_e2e.py --api-base http://10.0.0.5:8000/v1
+  python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
 
   # Custom YouTube video and question
   python scripts/test_youtube_e2e.py --youtube "https://www.youtube.com/watch?v=VIDEO_ID" \\
@@ -39,7 +39,7 @@ import textwrap
 import time
 
 # ── Unset cluster proxy env vars BEFORE importing HTTP libraries ──────────────
-# The kubebrain service mesh proxy cannot forward multimodal POST requests.
+# The cluster service-mesh proxy cannot forward multimodal POST requests.
 # Direct pod-to-pod connections work fine, so we bypass the proxy entirely.
 for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
     os.environ.pop(_key, None)
@@ -50,8 +50,8 @@ from PIL import Image
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = (
-    "/root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
+MODEL_PATH = os.path.expanduser(
+    "~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
     "/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
 )
 CACHE_ROOT = os.path.join(PROJECT_ROOT, "cache")
@@ -113,7 +113,7 @@ def read_serving_ip() -> str | None:
 
 def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
     """
-    Launch a vLLM serving job on a GPU node via rl.sh (non-detached).
+    Launch a vLLM serving job on a GPU node via scripts/rl.sh (non-detached).
     The GPU job writes its IP to a shared-filesystem file so we can find it.
     Returns the Popen process so we can monitor stderr for scheduling errors.
     """
@@ -141,8 +141,9 @@ def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
 
     # Run WITHOUT -d (detach) so we keep the rlaunch process alive and can
     # read its stderr for scheduling failures (quota, pending, OOM, etc.).
+    rl_sh = os.path.join(PROJECT_ROOT, "scripts", "rl.sh")
     cmd = [
-        "/root/resources/rl.sh",
+        rl_sh,
         "-gpu", str(gpu),
         "--",
         "bash", "-c", inner_script,
@@ -573,7 +574,7 @@ def main():
     )
     parser.add_argument(
         "--api-base", default=None,
-        help="Existing vLLM base URL (e.g. http://10.0.0.5:8000/v1). "
+        help="Existing vLLM base URL (e.g. http://localhost:8000/v1). "
              "If not set, auto-detect or launch a new serving job.",
     )
     parser.add_argument("--youtube", default=DEFAULT_YOUTUBE, help="YouTube URL to test with.")

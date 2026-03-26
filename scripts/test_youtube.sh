@@ -1,1 +1,1 @@
-rl.sh -gpu 2 -- python -m agent.main --source-type youtube --uri "https://www.youtube.com/watch?v=BoC5MY_7aDk" --mode detailed --direct-model --model-path /root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --cache-root ./cache
+rl.sh -gpu 2 -- python -m agent.main --source-type youtube --uri "https://www.youtube.com/watch?v=BoC5MY_7aDk" --mode detailed --direct-model --model-path $HOME/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --cache-root ./cache

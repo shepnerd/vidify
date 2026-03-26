@@ -27,7 +27,7 @@ The primary test script for validating the full video understanding pipeline. It
 python scripts/test_youtube_e2e.py
 
 # Use an existing serving endpoint
-python scripts/test_youtube_e2e.py --api-base http://10.0.0.5:8000/v1
+python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
 
 # Custom YouTube video and question
 python scripts/test_youtube_e2e.py \
@@ -48,7 +48,7 @@ python scripts/test_youtube_e2e.py --skip-serve
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--api-base` | auto-detect | vLLM base URL (e.g. `http://10.0.0.5:8000/v1`) |
+| `--api-base` | auto-detect | vLLM base URL (e.g. `http://localhost:8000/v1`) |
 | `--youtube` | sample video | YouTube URL to test with |
 | `--question` | general summary | Question for the Q&A test |
 | `--gpu` | 2 | Number of GPUs for serving |
@@ -69,7 +69,7 @@ When no `--api-base` is specified, the script:
    - The GPU worker starts `vllm serve` with the Qwen3-VL model
 5. Polls until the vLLM `/v1/models` endpoint responds (up to 10 minutes)
 
-This design works because the shared GPFS filesystem is accessible from both the internet-connected launcher node and the GPU worker node.
+This design works because the shared filesystem is accessible from both the internet-connected launcher node and the GPU worker node.
 
 ### Output
 
@@ -77,7 +77,7 @@ Results are saved to `cache/test_youtube_e2e_results.json`:
 
 ```json
 {
-  "base_url": "http://10.0.0.5:8000/v1",
+  "base_url": "http://localhost:8000/v1",
   "model": "Qwen3-VL-8B-Instruct",
   "youtube": "https://www.youtube.com/watch?v=...",
   "video_path": "cache/videos/abc123/source.mp4",

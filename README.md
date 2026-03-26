@@ -143,7 +143,7 @@ The `test_youtube_e2e.py` script auto-discovers or launches model serving, downl
 python scripts/test_youtube_e2e.py
 
 # Use existing endpoint
-python scripts/test_youtube_e2e.py --api-base http://10.0.0.5:8000/v1
+python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
 
 # Custom video, specific tests
 python scripts/test_youtube_e2e.py \

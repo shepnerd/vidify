@@ -3,7 +3,8 @@
 Demo script showing multi-region web search capabilities
 """
 import sys
-sys.path.append('/mnt/shared-storage-gpfs2/sfteval/wy/vidcopilot')
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.extensions.skills.web_search import web_search, is_google_accessible
 

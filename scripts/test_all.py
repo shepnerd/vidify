@@ -13,7 +13,7 @@ Usage:
 
   # Specify existing serving endpoint
   python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 \
-      --api-base http://10.0.0.5:8000/v1
+      --api-base http://localhost:8000/v1
 
   # Launch serving with specific GPU count
   python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --gpu 4
@@ -48,8 +48,8 @@ from openai import OpenAI
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-MODEL_PATH = (
-    "/root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
+MODEL_PATH = os.path.expanduser(
+    "~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
     "/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
 )
 CACHE_ROOT = os.path.join(PROJECT_ROOT, "cache")
@@ -123,7 +123,8 @@ def launch_serving(gpu: int = 2, tp: int | None = None) -> subprocess.Popen:
         f'--allowed-local-media-path / '
         f'2>&1 | tee -a {SERVING_LOG_FILE}'
     )
-    cmd = ["/root/resources/rl.sh", "-gpu", str(gpu), "--", "bash", "-c", inner_script]
+    rl_sh = os.path.join(PROJECT_ROOT, "scripts", "rl.sh")
+    cmd = [rl_sh, "-gpu", str(gpu), "--", "bash", "-c", inner_script]
     log(f"Launching vLLM serving with {gpu} GPUs (TP={tp}) ...")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     log(f"  Launched rlaunch process (pid={proc.pid})")

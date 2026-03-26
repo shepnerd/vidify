@@ -1,1 +1,1 @@
-rl.sh -gpu 2 -- python scripts/local_video_summary.py --video-path ./media/rocket~1.mp4 --cache-root ./cache --direct-model --model-path /root/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --mode detailed
+rl.sh -gpu 2 -- python scripts/local_video_summary.py --video-path ./media/rocket~1.mp4 --cache-root ./cache --direct-model --model-path $HOME/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b --mode detailed
