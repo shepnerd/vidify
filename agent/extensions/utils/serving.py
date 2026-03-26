@@ -18,6 +18,25 @@ from openai import OpenAI
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
+
+def _load_dotenv(root: str = _PROJECT_ROOT) -> None:
+    """Load .env file into os.environ (setdefault, no overwrite)."""
+    env_path = os.path.join(root, ".env")
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+
+
+_load_dotenv()
+
 DEFAULT_MODEL_PATH = os.path.expanduser(
     "~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct"
     "/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
