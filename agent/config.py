@@ -126,6 +126,9 @@ def get_default_workflows_config() -> Dict[str, Any]:
             "source": "webcam",
             "resolution": [640, 480],
             "fps": 1,
-            "heavy_interval": 5
+            "heavy_interval": 5,
+            "similarity_threshold": 0.9,
+            "min_segment_frames": 3,
+            "max_segment_frames": 16
         }
     }

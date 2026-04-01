@@ -5,6 +5,7 @@ from agent.extensions.workflows.index import wf_index
 from agent.extensions.workflows.ask import wf_ask
 from agent.extensions.workflows.highlights import wf_highlights
 from agent.extensions.workflows.report import generate_report
+from agent.extensions.workflows.live import wf_live
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,6 +58,11 @@ def run(asset, mode: str, cfg: dict) -> dict:
                                    tokenizer_path=cfg.get("tokenizer_path"),
                                    google_api_key=cfg.get("google_api_key"),
                                    google_search_engine_id=cfg.get("google_search_engine_id"))
+        elif mode == "live":
+            return wf_live(
+                source=cfg.get("stream_source", "webcam"),
+                stream_url=cfg.get("stream_url"),
+                cfg=cfg)
         else:
             raise ValueError(f"Unknown mode: {mode}")
     except Exception as e:

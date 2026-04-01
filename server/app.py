@@ -15,6 +15,7 @@ from agent.extensions.workflows.index import wf_index
 from agent.extensions.workflows.ask import wf_ask
 from agent.extensions.workflows.highlights import wf_highlights
 from agent.extensions.skills.persist import load_analysis
+from agent.extensions.workflows.live import create_live_session
 
 app = FastAPI(title="Video Agent Server", version="0.1.0")
 
@@ -108,7 +109,31 @@ class LoadAnalysisReq(BaseModel):
     cache_root: str = "./cache"
 
 
+class LiveStartReq(BaseModel):
+    source: Literal["webcam", "stream"] = "webcam"
+    stream_url: Optional[str] = None
+    fps: int = Field(default=1, ge=1, le=30)
+    heavy_interval: int = Field(default=5, ge=1, le=30)
+    llm_base_url: str = "http://localhost:8000/v1"
+    llm_model: str = "qwen-vl"
+    embed_base_url: str = "http://localhost:8000/v1"
+    embed_model: str = "qwen-embed"
+
+
+class LiveAskReq(BaseModel):
+    session_id: str
+    question: str
+
+
+class LiveStopReq(BaseModel):
+    session_id: str
+
+
 # --------- Helpers ---------
+
+# Live session store (in-memory)
+_live_sessions: Dict[str, Any] = {}
+_session_counter = 0
 
 def _get_asset(source_type: str, uri: str, cache_root: str):
     try:
@@ -244,3 +269,64 @@ async def upload_video(request: Request, file: UploadFile = File(...), mode: str
     result = run(asset, mode, {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"})
 
     return templates.TemplateResponse("result.html", {"request": request, "result": result})
+
+
+# --------- Live Streaming Endpoints ---------
+
+@app.post("/live/start")
+def live_start(req: LiveStartReq):
+    """Start a live stream processing session."""
+    global _session_counter
+    _session_counter += 1
+    session_id = f"live_{_session_counter:04d}"
+
+    cfg = {
+        "source": req.source,
+        "stream_url": req.stream_url,
+        "fps": req.fps,
+        "heavy_interval": req.heavy_interval,
+        "llm_base_url": req.llm_base_url,
+        "llm_model": req.llm_model,
+        "embed_base_url": req.embed_base_url,
+        "embed_model": req.embed_model,
+    }
+    try:
+        session = create_live_session(session_id, cfg)
+        session.start()
+        _live_sessions[session_id] = session
+        return {"session_id": session_id, "status": "started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/live/ask")
+def live_ask(req: LiveAskReq):
+    """Ask a question about the current live stream."""
+    session = _live_sessions.get(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {req.session_id} not found")
+    try:
+        return session.ask(req.question)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/live/stop")
+def live_stop(req: LiveStopReq):
+    """Stop a live stream session and return final memory."""
+    session = _live_sessions.pop(req.session_id, None)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {req.session_id} not found")
+    try:
+        return session.stop()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/live/status/{session_id}")
+def live_status(session_id: str):
+    """Get current status of a live stream session."""
+    session = _live_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return session.status()

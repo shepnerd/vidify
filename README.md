@@ -12,6 +12,7 @@ Video understanding agent — feed it a YouTube URL and get structured analysis,
 | **Edit** | Auto-detect highlights, export clips, assemble reels |
 | **Enhance** | Web search context, multi-language support |
 | **Report** | Comprehensive analysis report generation |
+| **Stream** | Real-time live stream / webcam processing with adaptive segmentation and two-level memory |
 
 ## Design Philosophy: ASR-First, Visuals as Last Resort
 
@@ -89,6 +90,12 @@ python agent/main.py youtube URL --mode highlights
 
 # Generate report with web search
 python agent/main.py youtube URL --mode report --include-web-search
+
+# Live stream from webcam
+python agent/main.py local webcam --mode live
+
+# Live stream from RTMP/HTTP URL
+python agent/main.py local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
 ```
 
 ### Processing Flow
@@ -134,6 +141,128 @@ python agent/main.py youtube URL --mode report --include-web-search
                    └─────────────┘
 ```
 
+## Online / Streaming Processing
+
+VidCopilot supports real-time video understanding from webcams and RTMP/HTTP streams. The streaming architecture is inspired by [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive).
+
+### Architecture
+
+The streaming pipeline uses a three-module design:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Live Stream Pipeline                        │
+│                                                                     │
+│  ┌──────────────┐   ┌──────────────────┐   ┌───────────────────┐   │
+│  │  Perception   │   │     Memory       │   │    Reasoning      │   │
+│  │              │   │                  │   │                   │   │
+│  │ Frame capture│──▶│ Local segments   │──▶│ Query retrieval   │   │
+│  │ Scene detect │   │ Global summary   │   │ LLM Q&A          │   │
+│  │ SlowFast     │   │ Backup-on-query  │   │ Context building  │   │
+│  └──────────────┘   └──────────────────┘   └───────────────────┘   │
+│       │                                            │               │
+│       ▼                                            ▼               │
+│  Frame-level results                     Answer + evidence         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Module A: Perception** — Captures frames at configurable FPS, detects scene changes using CLIP embedding similarity (threshold-based, not fixed windows), and routes each frame through heavy or light analysis models (SlowFast strategy).
+
+**Module B: Memory** — Maintains a two-level memory hierarchy:
+  - *Local memory*: Per-segment compressed representations (caption + CLIP embedding) for fine-grained temporal retrieval
+  - *Global memory*: LLM-generated summary across all segments for holistic understanding
+
+**Module C: Reasoning** — On query, snapshots the memory (backup-on-query pattern for consistency), retrieves relevant segments via cosine similarity, and generates answers using the full context.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Adaptive segmentation** | CLIP-based scene-change detection creates semantically meaningful segments instead of fixed-duration windows |
+| **SlowFast analysis** | Heavy model (7B MLLM + OCR + detection) every N frames; light model (small MLLM + OCR) on others |
+| **Two-level memory** | Local per-segment memory for retrieval + global summary for holistic understanding |
+| **Live Q&A** | Ask questions mid-stream; memory is snapshotted for consistency while processing continues |
+| **Backup-on-query** | Deep-copy of memory state ensures retrieval operates on consistent data |
+
+### CLI Usage
+
+```bash
+# Live stream from webcam (default)
+python agent/main.py analyze local webcam --mode live
+
+# RTMP stream
+python agent/main.py analyze local stream --mode live \
+  --stream-source stream --stream-url rtmp://host/live/key
+
+# HTTP stream (e.g., IP camera)
+python agent/main.py analyze local stream --mode live \
+  --stream-source stream --stream-url http://camera-ip/video
+```
+
+### REST API
+
+Start the server, then use the `/live/*` endpoints:
+
+```bash
+uvicorn server.app:app --host 0.0.0.0 --port 9000
+```
+
+**Start a session:**
+```bash
+curl -X POST http://localhost:9000/live/start \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "stream", "stream_url": "rtmp://host/live/key", "fps": 1}'
+# Returns: {"session_id": "live_0001", "status": "started"}
+```
+
+**Ask a question mid-stream:**
+```bash
+curl -X POST http://localhost:9000/live/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id": "live_0001", "question": "What is happening in the video?"}'
+# Returns: {"answer": "...", "relevant_segments": [...], "global_summary": "..."}
+```
+
+**Check status:**
+```bash
+curl http://localhost:9000/live/status/live_0001
+# Returns: {"running": true, "segments_processed": 12, "total_duration_sec": 180.0, ...}
+```
+
+**Stop and get final memory:**
+```bash
+curl -X POST http://localhost:9000/live/stop \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id": "live_0001"}'
+# Returns: {"memory": {...}, "total_frame_results": 180}
+```
+
+### Streaming Configuration
+
+Settings in `workflows.yaml` under `live_stream`:
+
+```yaml
+live_stream:
+  source: webcam               # "webcam" or "stream"
+  fps: 1                       # frames per second to process
+  heavy_interval: 5            # use heavy model every N frames
+  similarity_threshold: 0.9    # CLIP cosine similarity for scene change
+  min_segment_frames: 3        # minimum frames before allowing new segment
+  max_segment_frames: 16       # force new segment after this many frames
+```
+
+Model tiers in `models.yaml`:
+
+```yaml
+mllm:
+  heavy:
+    model_name: qwen-vl-7b     # full 7B model for detailed analysis
+    base_url: http://localhost:8000/v1
+  light:
+    model_name: qwen-vl-1b     # lightweight model for fast per-frame captioning
+    base_url: http://localhost:8000/v1
+```
+
 ## E2E Testing
 
 The `test_youtube_e2e.py` script auto-discovers or launches model serving, downloads a YouTube video, and runs a full test suite:
@@ -171,8 +300,11 @@ agent/
       asr.py               # Whisper ASR
       vision_caption.py    # MLLM frame/video captioning
       timeline_builder.py  # LLM-based timeline (uses content metadata)
+      scene_similarity.py  # CLIP-based scene-change detection for streaming
+      stream_memory.py     # Two-level memory manager (local + global)
+      live_stream_processing.py # Real-time stream processor with SlowFast
       ...                  # OCR, object detection, emotion, FAISS, etc.
-    workflows/           # Pipelines (brief, detailed, index, ask, highlights, report)
+    workflows/           # Pipelines (brief, detailed, index, ask, highlights, report, live)
     utils/               # Caching, hashing
   config.py              # YAML config loader
   main.py                # CLI entry point

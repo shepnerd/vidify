@@ -94,6 +94,31 @@ class HighlightClip(BaseModel):
     reel_start: Optional[float] = None
     reel_end: Optional[float] = None
 
+class StreamConfig(BaseModel):
+    similarity_threshold: float = 0.9
+    min_segment_frames: int = 3
+    max_segment_frames: int = 16
+    heavy_interval: int = 5
+    fps: int = 1
+    source: Literal["webcam", "stream"] = "webcam"
+    stream_url: Optional[str] = None
+
+class StreamSegment(BaseModel):
+    segment_id: str
+    start_ts: float
+    end_ts: float
+    frame_paths: List[str] = Field(default_factory=list)
+    caption: Optional[str] = None
+    embedding: Optional[List[float]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class StreamMemory(BaseModel):
+    segments: List[StreamSegment] = Field(default_factory=list)
+    global_summary: str = ""
+    global_embedding: Optional[List[float]] = None
+    total_frames_processed: int = 0
+    total_duration_sec: float = 0.0
+
 class AnalysisResult(BaseModel):
     video: Dict[str, Any]
     frames: Optional[FrameSet] = None

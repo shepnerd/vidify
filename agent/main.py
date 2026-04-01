@@ -16,13 +16,16 @@ def cli(ctx, config):
 @cli.command()
 @click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
 @click.argument('uri')
-@click.option('--mode', default='detailed', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']))
+@click.option('--mode', default='detailed', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'live']))
 @click.option('--cache-root', default='./cache')
 @click.option('--question', default=None)
 @click.option('--max-frames', type=int, default=128)
+@click.option('--stream-source', default='webcam', type=click.Choice(['webcam', 'stream']),
+              help='Source for live mode')
+@click.option('--stream-url', default=None, help='RTMP/HTTP URL for live stream mode')
 @click.option('--interactive', is_flag=True, help='Interactive mode')
 @click.pass_context
-def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, interactive):
+def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, stream_source, stream_url, interactive):
     """Analyze a video."""
     cfg = ctx.obj['config']
     cfg.update({
@@ -31,7 +34,9 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, inter
         'mode': mode,
         'cache_root': cache_root,
         'question': question,
-        'max_frames': max_frames
+        'max_frames': max_frames,
+        'stream_source': stream_source,
+        'stream_url': stream_url,
     })
 
     if interactive:
