@@ -55,7 +55,8 @@ def get_default_config() -> Dict[str, Any]:
         "google_search_engine_id": None,
         "direct_model": False,
         "model_path": "/models/qwen-vl",
-        "tokenizer_path": None
+        "tokenizer_path": None,
+        "log_format": "text",  # "json" for structured logging
     }
 
 def get_default_models_config() -> Dict[str, Any]:
@@ -121,6 +122,7 @@ def get_default_workflows_config() -> Dict[str, Any]:
             "min_word_count": 50,
             "force_visual": False,
             "prefer_subtitles_over_asr": True,
+            "max_parallel_skills": 3,
         },
         "live_stream": {
             "source": "webcam",

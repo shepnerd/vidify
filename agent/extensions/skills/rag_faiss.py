@@ -6,6 +6,7 @@ import faiss
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client
 from agent.extensions.utils.cache import ensure_dir, write_json
+from agent.core.retry import retry_with_backoff
 
 def _chunk_items(video, transcript, frames, chunk_sec: int = 20) -> List[Dict[str, Any]]:
     duration = video.metadata.duration_sec if video.metadata else 0.0
@@ -45,6 +46,7 @@ def _chunk_items(video, transcript, frames, chunk_sec: int = 20) -> List[Dict[st
         })
     return items
 
+@retry_with_backoff(max_retries=3, base_delay=2.0, max_delay=60.0)
 def _embed_texts(client: OpenAI, model: str, texts: List[str]) -> np.ndarray:
     resp = client.embeddings.create(model=model, input=texts)
     vecs = np.array([d.embedding for d in resp.data], dtype="float32")

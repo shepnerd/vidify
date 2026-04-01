@@ -13,6 +13,8 @@ from agent.extensions.skills.persist import save_analysis
 from agent.extensions.skills.web_search import deep_search_enhance
 from agent.core.schemas import FrameStrategy, FrameSet, Transcript
 from agent.config import load_models_config, load_workflows_config
+from agent.core.skill_guard import skill_guard
+from agent.core.events import event_bus, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +44,15 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
         force_visual = wf_cfg.get('force_visual', False)
 
     # --- Step 1: Probe video technical metadata ---
+    event_bus.emit_skill_start("Video Probe", progress_pct=5)
     meta = probe_video(asset.local_path)
     if asset.content_metadata:
         meta.content = asset.content_metadata
     asset.metadata = meta
+    event_bus.emit_skill_complete("Video Probe", progress_pct=10)
 
     # --- Step 2: Get transcript (subtitles first, then ASR fallback) ---
+    event_bus.emit_skill_start("Transcript", progress_pct=10)
     transcript = None
 
     # 2a: Try subtitles (free, often higher quality than ASR)
@@ -66,6 +71,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
 
     if transcript is None:
         transcript = Transcript(segments=[], language=None)
+    event_bus.emit_skill_complete("Transcript", progress_pct=30)
 
     # --- Step 3: Sufficiency check ---
     min_coverage = wf_cfg.get('min_coverage_ratio', 0.3)
@@ -78,6 +84,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
 
     # --- Step 4: Conditional visual processing ---
     if not sufficiency.is_sufficient:
+        event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
         logger.info("Transcript insufficient, running visual processing...")
         if supports_video(llm_model):
             frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
@@ -94,24 +101,29 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     else:
         logger.info("Transcript sufficient, skipping MLLM visual processing.")
         frames = FrameSet(items=[], strategy=FrameStrategy(type="skipped", params={}))
+        event_bus.emit_skill_skipped("Visual Captioning", reason="transcript sufficient", progress_pct=60)
+
+    event_bus.emit_skill_complete("Visual Captioning", progress_pct=60)
 
     # --- Step 5: Build timeline ---
+    event_bus.emit_skill_start("Timeline Builder", progress_pct=60)
     content_meta = meta.content if meta.content else asset.content_metadata
     timeline = build_timeline(meta, transcript, frames, llm_model, llm_base_url,
                               content_metadata=content_meta,
                               direct_model=direct_model, model_path=model_path,
                               tokenizer_path=tokenizer_path)
+    event_bus.emit_skill_complete("Timeline Builder", progress_pct=80)
 
     # --- Step 6: Optional web search enhancement ---
     web_search_results = {}
     if include_web_search:
+        _safe_search = skill_guard("Web Search", optional=True, default={})(
+            deep_search_enhance
+        )
         search_query = f"video analysis {timeline[:200]}" if isinstance(timeline, str) else "video analysis"
-        try:
-            web_search_results = deep_search_enhance(search_query, str(timeline)[:500],
-                                                     api_key=google_api_key,
-                                                     search_engine_id=google_search_engine_id)
-        except Exception as e:
-            web_search_results = {"error": str(e)}
+        web_search_results = _safe_search(search_query, str(timeline)[:500],
+                                          api_key=google_api_key,
+                                          search_engine_id=google_search_engine_id)
 
     # --- Step 7: Output ---
     out = {

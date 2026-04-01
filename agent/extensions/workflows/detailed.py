@@ -20,6 +20,9 @@ except ImportError:
 from agent.extensions.skills.translation import translate_asr_results
 from agent.core.schemas import FrameStrategy, FrameSet, Transcript
 from agent.config import load_models_config, load_workflows_config
+from agent.core.skill_guard import skill_guard
+from agent.core.events import event_bus, EventType
+from agent.core.parallel import run_skills_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +57,15 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
         force_visual = wf_cfg.get('force_visual', False)
 
     # --- Step 1: Probe video technical metadata ---
+    event_bus.emit_skill_start("Video Probe", progress_pct=5)
     meta = probe_video(asset.local_path)
     if asset.content_metadata:
         meta.content = asset.content_metadata
     asset.metadata = meta
+    event_bus.emit_skill_complete("Video Probe", progress_pct=8)
 
     # --- Step 2: Get transcript (subtitles first, then ASR fallback) ---
+    event_bus.emit_skill_start("Transcript", progress_pct=8)
     transcript = None
     audio_path = None
 
@@ -81,6 +87,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
 
     if transcript is None:
         transcript = Transcript(segments=[], language=None)
+    event_bus.emit_skill_complete("Transcript", progress_pct=25)
 
     # --- Step 3: Sufficiency check ---
     min_coverage = wf_cfg.get('min_coverage_ratio', 0.3)
@@ -92,6 +99,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     logger.info("Content sufficiency: %s — %s", sufficiency.is_sufficient, sufficiency.reason)
 
     # --- Step 4: Frame sampling (always, for OCR/detection) + conditional MLLM captioning ---
+    event_bus.emit_skill_start("Frame Sampling", progress_pct=28)
     # In detailed mode, always sample frames for OCR and object detection (lightweight local models).
     # Only skip the expensive MLLM captioning when transcript is sufficient.
     frames_dir = os.path.join(asset.cache_dir, "frames")
@@ -101,6 +109,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     )
 
     if not sufficiency.is_sufficient:
+        event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
         logger.info("Transcript insufficient, running MLLM frame captioning...")
         if supports_video(llm_model):
             frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
@@ -112,37 +121,72 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                                     tokenizer_path=tokenizer_path)
     else:
         logger.info("Transcript sufficient, skipping MLLM captioning. Frames sampled for OCR/detection only.")
+        event_bus.emit_skill_skipped("Visual Captioning", reason="transcript sufficient", progress_pct=45)
+    event_bus.emit_skill_complete("Frame Sampling", progress_pct=45)
 
     # --- Step 5: Advanced analysis (OCR, object detection, emotion) ---
+    event_bus.emit_skill_start("Advanced Analysis", message="Running OCR, detection, emotion...", progress_pct=45)
     # BUG FIX: was `frames.frames` — correct attribute is `frames.items`
     frame_paths = [f.path for f in frames.items]
 
-    ocr_results = extract_text_from_video_frames(frame_paths) if frame_paths else {}
-    object_results = detect_objects_in_video_frames(frame_paths) if (detect_objects_in_video_frames and frame_paths) else {}
-    emotion_results = analyze_emotions(audio_path, frame_paths) if audio_path else {}
+    # Wrap optional skills with graceful degradation — if a dependency is
+    # missing or a model fails, we skip that skill instead of crashing.
+    _safe_ocr = skill_guard("OCR", optional=True, default={})(
+        extract_text_from_video_frames
+    )
+    _safe_emotion = skill_guard("Emotion Analysis", optional=True, default={})(
+        analyze_emotions
+    )
+
+    # Run independent skills in parallel (inspired by Claude Code's concurrent tool execution)
+    parallel_skills = []
+    if frame_paths:
+        parallel_skills.append(("ocr", _safe_ocr, (frame_paths,), {}))
+    if detect_objects_in_video_frames and frame_paths:
+        _safe_detect = skill_guard("Object Detection", optional=True, default={})(
+            detect_objects_in_video_frames
+        )
+        parallel_skills.append(("objects", _safe_detect, (frame_paths,), {}))
+    if audio_path:
+        parallel_skills.append(("emotions", _safe_emotion, (audio_path, frame_paths), {}))
+
+    max_workers = wf_cfg.get('max_parallel_skills', 3)
+    parallel_results = run_skills_parallel(parallel_skills, max_workers=max_workers)
+
+    ocr_results = parallel_results.get("ocr", {})
+    object_results = parallel_results.get("objects", {})
+    emotion_results = parallel_results.get("emotions", {})
+    event_bus.emit_skill_complete("Advanced Analysis", progress_pct=60)
 
     # --- Step 6: Translation ---
+    event_bus.emit_skill_start("Translation", progress_pct=60)
     # BUG FIX: was using `transcript` before it was defined; now it's defined above
+    _safe_translate = skill_guard("Translation", optional=True, default=[])(
+        translate_asr_results
+    )
     target_lang = models_config.get('translation', {}).get('target_lang', 'zh')
-    translated_asr = translate_asr_results(transcript.segments, target_lang=target_lang) if transcript.segments else []
+    translated_asr = _safe_translate(transcript.segments, target_lang=target_lang) if transcript.segments else []
+    event_bus.emit_skill_complete("Translation", progress_pct=68)
 
     # --- Step 7: Build timeline ---
+    event_bus.emit_skill_start("Timeline Builder", progress_pct=68)
     content_meta = meta.content if meta.content else asset.content_metadata
     timeline = build_timeline(meta, transcript, frames, llm_model, llm_base_url,
                               content_metadata=content_meta,
                               direct_model=direct_model, model_path=model_path,
                               tokenizer_path=tokenizer_path)
+    event_bus.emit_skill_complete("Timeline Builder", progress_pct=82)
 
     # --- Step 8: Optional web search enhancement ---
     web_search_results = {}
     if include_web_search:
+        _safe_search = skill_guard("Web Search", optional=True, default={})(
+            deep_search_enhance
+        )
         search_query = f"video analysis {timeline[:200]}" if isinstance(timeline, str) else "video analysis"
-        try:
-            web_search_results = deep_search_enhance(search_query, str(timeline)[:500],
-                                                     api_key=google_api_key,
-                                                     search_engine_id=google_search_engine_id)
-        except Exception as e:
-            web_search_results = {"error": str(e)}
+        web_search_results = _safe_search(search_query, str(timeline)[:500],
+                                          api_key=google_api_key,
+                                          search_engine_id=google_search_engine_id)
 
     # --- Step 9: Output ---
     out = {

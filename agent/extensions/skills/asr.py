@@ -3,6 +3,7 @@ import os
 from faster_whisper import WhisperModel
 from agent.core.schemas import Transcript, ASRSegment
 from agent.extensions.utils.cache import write_json, exists_nonempty
+from agent.core.retry import retry_with_backoff
 
 
 def _best_device():
@@ -16,6 +17,8 @@ def _best_device():
     return "cpu", "int8"
 
 
+@retry_with_backoff(max_retries=2, base_delay=3.0, max_delay=30.0,
+                    retryable_exceptions=(RuntimeError, OSError, MemoryError))
 def transcribe(audio_path: str, out_json_path: str,
                model_size: str = "small",
                device: str = None,

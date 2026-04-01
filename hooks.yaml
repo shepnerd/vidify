@@ -1,0 +1,30 @@
+# hooks.yaml — VidCopilot lifecycle hooks
+#
+# Hook points:
+#   pre_analysis   — before any workflow starts
+#   post_analysis  — after workflow completes (env: $RESULT_PATH, $VIDEO_URI, $CACHE_DIR)
+#   post_skill     — after each skill completes (env: $SKILL_NAME)
+#   on_error       — on failure (env: $ERROR_MSG, $VIDEO_URI)
+#   post_highlight — after clips exported (env: $CACHE_DIR)
+#   post_index     — after FAISS index built (env: $CACHE_DIR)
+#
+# Each hook entry:
+#   command: shell command (env vars are expanded)
+#   async: true/false (default false) — don't block pipeline
+#   timeout: seconds (default 30)
+#
+# Example:
+#
+# hooks:
+#   post_analysis:
+#     - command: "curl -s -X POST $WEBHOOK_URL -H 'Content-Type: application/json' -d @$RESULT_PATH"
+#       async: true
+#       timeout: 10
+#   on_error:
+#     - command: "echo \"[$(date)] ERROR: $ERROR_MSG — $VIDEO_URI\" >> /var/log/vidcopilot_errors.log"
+#   post_highlight:
+#     - command: "aws s3 sync $CACHE_DIR/highlights/ s3://my-bucket/highlights/"
+#       async: true
+#       timeout: 60
+
+hooks: {}

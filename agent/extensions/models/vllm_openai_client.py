@@ -1,6 +1,7 @@
 # models/vllm_openai_client.py
 import os
 from openai import OpenAI
+from agent.core.retry import retry_with_backoff
 
 # Strip cluster proxy env vars that corrupt multimodal POST payloads.
 # Must happen before httpx internalises the env (first OpenAI() call).
@@ -20,6 +21,7 @@ def make_client(base_url: str = "http://localhost:8000/v1",
     return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
 
 
+@retry_with_backoff(max_retries=3, base_delay=2.0, max_delay=60.0)
 def chat_with_images(client: OpenAI, model: str, prompt: str, image_urls: list[str],
                      max_tokens: int = 512, temperature: float = 0.2):
     content = [{"type": "text", "text": prompt}]
@@ -34,6 +36,7 @@ def chat_with_images(client: OpenAI, model: str, prompt: str, image_urls: list[s
     return resp.choices[0].message.content
 
 
+@retry_with_backoff(max_retries=3, base_delay=2.0, max_delay=60.0)
 def chat_with_video(client: OpenAI, model: str, prompt: str, video_path: str,
                     max_tokens: int = 512, temperature: float = 0.2):
     """Send a single video file to a multimodal model (e.g. Qwen3-VL)."""

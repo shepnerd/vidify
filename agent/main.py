@@ -1,17 +1,38 @@
 import click
+import sys
 from agent.extensions.skills.video_io import load_video
 from agent.core.orchestrator import run
 from agent.config import load_config, get_default_config
+from agent.core.events import event_bus, EventType
+from agent.core.logging_config import setup_logging
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
+
+def _cli_event_handler(event):
+    """Print real-time progress events to stderr for CLI users."""
+    icon = {
+        EventType.SKILL_START: ">>>",
+        EventType.SKILL_COMPLETE: "[ok]",
+        EventType.SKILL_ERROR: "[!!]",
+        EventType.SKILL_SKIPPED: "[--]",
+        EventType.PROGRESS: "...",
+        EventType.WORKFLOW_START: "===",
+        EventType.WORKFLOW_COMPLETE: "===",
+    }.get(event.type, "   ")
+    pct = f"[{event.progress_pct:5.1f}%]" if event.progress_pct else ""
+    click.echo(f"  {icon} {pct} {event.message}", err=True)
+
 @click.group()
 @click.option('--config', default='config.yaml', help='Path to config file')
+@click.option('--log-format', default='text', type=click.Choice(['text', 'json']),
+              help='Log format: text (human-readable) or json (structured)')
 @click.pass_context
-def cli(ctx, config):
+def cli(ctx, config, log_format):
     ctx.ensure_object(dict)
     ctx.obj['config'] = {**get_default_config(), **load_config(config)}
+    setup_logging(log_format=log_format)
 
 @cli.command()
 @click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
@@ -44,13 +65,13 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, strea
         cfg['uri'] = click.prompt('Video URI', default=cfg['uri'])
         cfg['mode'] = click.prompt('Mode', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']), default=cfg['mode'])
 
-    with click.progressbar(length=100, label='Processing') as bar:
-        asset = load_video(source_type, uri, cache_root)
-        bar.update(20)
-        result = run(asset, mode, cfg)
-        bar.update(80)
-        click.echo(result)
-        bar.update(100)
+    # Subscribe to pipeline events for real-time CLI progress
+    event_bus.subscribe(None, _cli_event_handler)
+
+    click.echo(f"Analyzing {uri} (mode={mode})...", err=True)
+    asset = load_video(source_type, uri, cache_root)
+    result = run(asset, mode, cfg)
+    click.echo(result)
 
 if __name__ == "__main__":
     cli()

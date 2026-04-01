@@ -13,6 +13,7 @@ Video understanding agent — feed it a YouTube URL and get structured analysis,
 | **Enhance** | Web search context, multi-language support |
 | **Report** | Comprehensive analysis report generation |
 | **Stream** | Real-time live stream / webcam processing with adaptive segmentation and two-level memory |
+| **Resilience** | Retry with exponential backoff, graceful degradation for optional skills, lifecycle hooks |
 
 ## Design Philosophy: ASR-First, Visuals as Last Resort
 
@@ -53,13 +54,23 @@ bash scripts/serving_qwen3vl.sh
 
 **CLI:**
 ```bash
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." --mode detailed
+python agent/main.py analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
+
+# With structured JSON logging
+python agent/main.py --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 ```
 
 **REST API:**
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 9000
+
+# Standard (returns final JSON)
 curl -X POST http://localhost:9000/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
+
+# Streaming (returns Server-Sent Events with real-time progress)
+curl -N -X POST http://localhost:9000/analyze/stream \
   -H 'Content-Type: application/json' \
   -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
 ```
@@ -284,13 +295,70 @@ Tests: `frames` | `batch_frames` | `video_caption` | `qa` | `multi_turn_qa`
 
 See [Testing Guide](docs/testing.md) for full details.
 
+## Production Features
+
+VidCopilot includes production-hardening patterns inspired by large-scale agent architectures:
+
+### Retry with Exponential Backoff
+
+All model calls (vLLM chat, Whisper ASR, embedding API) are wrapped with automatic retry on transient failures (timeouts, connection errors, 5xx, rate limits). Configurable per-call: `max_retries`, `base_delay`, `max_delay` with jitter to avoid thundering herd.
+
+```python
+from agent.core.retry import retry_with_backoff
+
+@retry_with_backoff(max_retries=3, base_delay=2.0, max_delay=60.0)
+def my_api_call():
+    ...
+```
+
+### Graceful Degradation
+
+Optional skills (OCR, object detection, emotion analysis, translation, web search) are wrapped with `@skill_guard` — if a dependency is missing or a model fails, the skill is skipped and the pipeline continues with a warning instead of crashing.
+
+### Parallel Skill Execution
+
+In the `detailed` workflow, independent skills (OCR, object detection, emotion analysis) run in parallel using a thread pool. Configurable via `max_parallel_skills` in `workflows.yaml` (default: 3).
+
+### Streaming Progress Events
+
+An event bus (`agent.core.events`) emits lifecycle events (`skill_start`, `skill_complete`, `skill_error`, `skill_skipped`, `progress`) at each pipeline step.
+
+- **CLI**: Real-time per-skill progress printed to stderr
+- **API**: `POST /analyze/stream` returns Server-Sent Events for live progress monitoring
+
+### Lifecycle Hooks
+
+Shell commands can be triggered at analysis milestones via `hooks.yaml`:
+
+```yaml
+hooks:
+  post_analysis:
+    - command: "curl -X POST $WEBHOOK_URL -d @$RESULT_PATH"
+      async: true
+      timeout: 10
+  on_error:
+    - command: "echo 'Failed: $ERROR_MSG' >> errors.log"
+```
+
+Hook points: `pre_analysis`, `post_analysis`, `post_skill`, `on_error`, `post_highlight`, `post_index`.
+
+### Structured Logging
+
+Pass `--log-format json` to the CLI for machine-readable JSON logs with `video_id`, `skill_name`, `duration_ms`, and `status` fields. Use `WorkflowTracker` for per-workflow skill timing summaries.
+
 ## Project Structure
 
 ```
 agent/
   core/
     schemas.py           # Data models (VideoAsset, FrameSet, Transcript, ContentMetadata, ...)
-    orchestrator.py      # Workflow router
+    orchestrator.py      # Workflow router with hook triggers
+    retry.py             # @retry_with_backoff decorator (exponential backoff + jitter)
+    skill_guard.py       # @skill_guard decorator (graceful degradation)
+    events.py            # EventBus for streaming progress notifications
+    parallel.py          # Parallel skill execution via ThreadPoolExecutor
+    hooks.py             # Lifecycle hook manager (reads hooks.yaml)
+    logging_config.py    # Structured JSON logging, WorkflowTracker
   extensions/
     models/              # vLLM client, direct model loader
     skills/              # Processing skills
@@ -320,6 +388,7 @@ Optional YAML files in the project root:
 
 - `models.yaml` — model selection, parameters, endpoints
 - `workflows.yaml` — workflow steps, frame limits, feature toggles
+- `hooks.yaml` — lifecycle hooks (shell commands triggered at analysis milestones)
 
 ### ASR-First Configuration
 

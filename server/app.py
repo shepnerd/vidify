@@ -1,9 +1,12 @@
 # server/app.py
 import os
+import json
+import queue
+import threading
 from typing import Literal, Optional, Any, Dict
 
 from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -16,6 +19,7 @@ from agent.extensions.workflows.ask import wf_ask
 from agent.extensions.workflows.highlights import wf_highlights
 from agent.extensions.skills.persist import load_analysis
 from agent.extensions.workflows.live import create_live_session
+from agent.core.events import event_bus, EventBus, Event
 
 app = FastAPI(title="Video Agent Server", version="0.1.0")
 
@@ -269,6 +273,62 @@ async def upload_video(request: Request, file: UploadFile = File(...), mode: str
     result = run(asset, mode, {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"})
 
     return templates.TemplateResponse("result.html", {"request": request, "result": result})
+
+
+# --------- SSE Streaming Endpoint ---------
+
+@app.post("/analyze/stream")
+def analyze_stream(req: AnalyzeReq):
+    """Stream analysis progress as Server-Sent Events.
+
+    Returns SSE events for each skill start/complete/error, then a final
+    'result' event with the full analysis JSON. Clients can render a live
+    progress bar from the progress_pct field.
+    """
+    asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    q: queue.Queue = queue.Queue()
+
+    def _event_to_queue(event: Event):
+        q.put(event)
+
+    def _run_analysis():
+        try:
+            if req.mode == "quick":
+                result = wf_quick(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
+            else:
+                result = wf_detailed(
+                    asset, req.llm_base_url, req.llm_model,
+                    max_frames=req.max_frames,
+                    whisper_model=req.whisper_model,
+                    direct_model=req.direct_model,
+                    model_path=req.model_path,
+                    tokenizer_path=req.tokenizer_path,
+                )
+            q.put(("__result__", result))
+        except Exception as e:
+            q.put(("__error__", str(e)))
+
+    # Subscribe to events, run analysis in background thread
+    event_bus.subscribe(None, _event_to_queue)
+    thread = threading.Thread(target=_run_analysis, daemon=True)
+    thread.start()
+
+    def _generate():
+        while True:
+            item = q.get(timeout=600)  # 10min max
+            if isinstance(item, Event):
+                yield item.to_sse()
+            elif isinstance(item, tuple):
+                tag, payload = item
+                if tag == "__result__":
+                    yield f"event: result\ndata: {json.dumps(payload, default=str)}\n\n"
+                    break
+                elif tag == "__error__":
+                    yield f"event: error\ndata: {json.dumps({'error': payload})}\n\n"
+                    break
+        event_bus.unsubscribe(None, _event_to_queue)
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
 # --------- Live Streaming Endpoints ---------
