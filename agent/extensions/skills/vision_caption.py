@@ -1,13 +1,15 @@
 import json, math, subprocess
 from openai import OpenAI
-from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
 from agent.extensions.models.direct_model_loader import make_direct_client
+from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 from agent.extensions.utils import (
     get_video_duration, split_video_segment, make_video_content, img_to_data_url,
 )
 
 def supports_video(model_name: str) -> bool:
-    return "qwen" in model_name.lower() or "video" in model_name.lower()
+    name = model_name.lower()
+    return "qwen" in name or "video" in name
 
 def caption_frames(frames, model_name: str, base_url: str,
                    max_frames: int = 128, batch_size: int = 8,
@@ -59,13 +61,17 @@ def caption_frames(frames, model_name: str, base_url: str,
                 content.append({"type": "image", "image": data_url})  # data-url image [2]
                 content.append({"type": "text", "text": f"frame_id={it.id}"})
 
+            kwargs = {}
+            if _is_qwen35(model_name):
+                kwargs["extra_body"] = make_no_thinking_extra_body()
             resp = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": content}],
                 temperature=0.2,
                 max_completion_tokens=800,
+                **kwargs,
             )
-            text = resp.choices[0].message.content.strip()
+            text = strip_thinking(resp.choices[0].message.content.strip())
 
             # 解析并对齐
             try:
@@ -103,13 +109,17 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
         else:
             client = make_client(base_url)
             content = [{"type": "text", "text": "请生成视频的中文描述。"}, make_video_content(video_path)]
+            kwargs = {}
+            if _is_qwen35(model_name):
+                kwargs["extra_body"] = make_no_thinking_extra_body()
             resp = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": content}],
                 temperature=0.2,
                 max_completion_tokens=500,
+                **kwargs,
             )
-            text = resp.choices[0].message.content.strip()
+            text = strip_thinking(resp.choices[0].message.content.strip())
         return [{"start": 0, "end": duration, "caption": text}]
 
     else:
@@ -131,13 +141,17 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
                 client = make_client(base_url)
                 content = [{"type": "text", "text": f"请生成这段视频的中文描述。{f' 前面的总结：{prev_summary}' if prev_summary else ''}"},
                            make_video_content(segment_path)]
+                kwargs = {}
+                if _is_qwen35(model_name):
+                    kwargs["extra_body"] = make_no_thinking_extra_body()
                 resp = client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": content}],
                     temperature=0.2,
                     max_completion_tokens=300,
+                    **kwargs,
                 )
-                text = resp.choices[0].message.content.strip()
+                text = strip_thinking(resp.choices[0].message.content.strip())
             segments.append({"start": start, "end": end, "caption": text})
             summaries.append(text)
             start = end

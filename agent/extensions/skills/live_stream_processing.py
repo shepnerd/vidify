@@ -17,6 +17,7 @@ from typing import Callable, Any, Tuple, Dict, List, Optional
 
 from agent.config import load_models_config, load_workflows_config
 from agent.core.schemas import StreamSegment, StreamConfig
+from agent.extensions.models.thinking import strip_thinking
 from agent.extensions.skills.scene_similarity import (
     compute_frame_embedding, is_scene_change,
 )
@@ -278,7 +279,7 @@ class LiveStreamProcessor:
                 temperature=0.3,
                 max_completion_tokens=500,
             )
-            answer = resp.choices[0].message.content.strip()
+            answer = strip_thinking(resp.choices[0].message.content.strip())
         except Exception as e:
             logger.error(f"Query failed: {e}")
             answer = f"Error generating answer: {e}"

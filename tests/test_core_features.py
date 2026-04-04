@@ -528,3 +528,101 @@ hooks:
             mgr.trigger("on_error")  # no hooks configured for on_error
 
         os.unlink(yf.name)
+
+
+# ---------------------------------------------------------------------------
+# Feature 7: Qwen3.5 Compatibility (Thinking Mode)
+# ---------------------------------------------------------------------------
+
+class TestThinkingMode:
+    def test_strip_thinking_with_block(self):
+        from agent.extensions.models.thinking import strip_thinking
+
+        text = "<think>\nLet me analyze this image...\nI see a cat.\n</think>\n\nThis is a photo of a cat."
+        assert strip_thinking(text) == "This is a photo of a cat."
+
+    def test_strip_thinking_without_block(self):
+        from agent.extensions.models.thinking import strip_thinking
+
+        text = "This is a photo of a cat."
+        assert strip_thinking(text) == "This is a photo of a cat."
+
+    def test_strip_thinking_empty_block(self):
+        from agent.extensions.models.thinking import strip_thinking
+
+        text = "<think>\n</think>\n\nThe answer is 42."
+        assert strip_thinking(text) == "The answer is 42."
+
+    def test_strip_thinking_multiline(self):
+        from agent.extensions.models.thinking import strip_thinking
+
+        text = (
+            "<think>\nStep 1: look at the frame\n"
+            "Step 2: identify objects\n"
+            "Step 3: describe\n</think>\n\n"
+            '{"frame_id": "f_001", "caption": "A person walking"}'
+        )
+        result = strip_thinking(text)
+        assert result.startswith('{"frame_id"')
+        assert "<think>" not in result
+
+    def test_extract_thinking(self):
+        from agent.extensions.models.thinking import extract_thinking
+
+        text = "<think>\nreasoning here\n</think>\n\nfinal answer"
+        thinking, answer = extract_thinking(text)
+        assert thinking == "reasoning here"
+        assert answer == "final answer"
+
+    def test_extract_thinking_no_block(self):
+        from agent.extensions.models.thinking import extract_thinking
+
+        text = "just an answer"
+        thinking, answer = extract_thinking(text)
+        assert thinking is None
+        assert answer == "just an answer"
+
+    def test_make_no_thinking_extra_body(self):
+        from agent.extensions.models.thinking import make_no_thinking_extra_body
+
+        body = make_no_thinking_extra_body()
+        assert body == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    def test_strip_thinking_json_array(self):
+        from agent.extensions.models.thinking import strip_thinking
+
+        text = (
+            '<think>\nI need to generate captions for each frame.\n</think>\n\n'
+            '[{"frame_id": "f_001", "caption": "A sunset"}, '
+            '{"frame_id": "f_002", "caption": "A mountain"}]'
+        )
+        result = strip_thinking(text)
+        arr = json.loads(result)
+        assert len(arr) == 2
+        assert arr[0]["frame_id"] == "f_001"
+
+
+class TestQwen35Detection:
+    def test_is_qwen35_positive(self):
+        from agent.extensions.models.vllm_openai_client import _is_qwen35
+
+        assert _is_qwen35("qwen3.5-9b") is True
+        assert _is_qwen35("Qwen3.5-9B") is True
+        assert _is_qwen35("qwen3.5-4b") is True
+        assert _is_qwen35("Qwen/Qwen3.5-9B") is True
+
+    def test_is_qwen35_negative(self):
+        from agent.extensions.models.vllm_openai_client import _is_qwen35
+
+        assert _is_qwen35("qwen-vl-7b") is False
+        assert _is_qwen35("qwen3-vl-8b") is False
+        assert _is_qwen35("gpt-4o") is False
+
+    def test_supports_video_qwen35(self):
+        from agent.extensions.skills.vision_caption import supports_video
+
+        assert supports_video("qwen3.5-9b") is True
+        assert supports_video("Qwen3.5-9B") is True
+        assert supports_video("qwen-vl-7b") is True
+        assert supports_video("gpt-4o-video") is True
+        assert supports_video("llama-3") is False

@@ -1,8 +1,9 @@
 # agent/skills/highlights.py
 import json
 from openai import OpenAI
-from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
 from agent.extensions.models.direct_model_loader import make_direct_client
+from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 from agent.core.schemas import HighlightClip
 
 def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str,
@@ -30,12 +31,16 @@ def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str
             "output_schema": [{"start": "sec", "end": "sec", "reason": "str"}]
         }
 
+        kwargs = {}
+        if _is_qwen35(model_name):
+            kwargs["extra_body"] = make_no_thinking_extra_body()
         resp = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}],
             temperature=0.2,
             max_completion_tokens=800,
+            **kwargs,
         )
-        text = resp.choices[0].message.content.strip()
+        text = strip_thinking(resp.choices[0].message.content.strip())
     arr = json.loads(text)
     return [HighlightClip(start=o["start"], end=o["end"], reason=o["reason"], output_path="") for o in arr]

@@ -1,5 +1,6 @@
 # agent/skills/multimodal_qa.py
-from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
+from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 
 def video_frames_qa(frame_items, question: str,
                     model_name: str, base_url: str,
@@ -23,11 +24,14 @@ def video_frames_qa(frame_items, question: str,
         content.append({"type": "image_url", "image_url": {"url": it.path}})
         content.append({"type": "text", "text": f"(frame_id={it.id}, ts={it.ts:.1f}s)"})
 
+    extra = extra_body or {}
+    if _is_qwen35(model_name) and "chat_template_kwargs" not in extra:
+        extra = {**extra, **make_no_thinking_extra_body()}
     resp = client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": content}],
         temperature=temperature,
         max_completion_tokens=max_tokens,
-        extra_body=extra_body or {}  # vLLM 可透传 top_k 等 [1]
+        extra_body=extra,
     )
-    return resp.choices[0].message.content
+    return strip_thinking(resp.choices[0].message.content)

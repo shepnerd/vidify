@@ -1,8 +1,9 @@
 # agent/skills/timeline_builder.py
 import json
 from openai import OpenAI
-from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
 from agent.extensions.models.direct_model_loader import make_direct_client
+from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 
 def build_timeline(metadata, transcript, frames, model_name: str, base_url: str,
                    content_metadata=None,
@@ -56,13 +57,17 @@ def build_timeline(metadata, transcript, frames, model_name: str, base_url: str,
         prompt = f"请根据以下信息生成视频结构化时间线。输出必须是严格的JSON格式，不要包含其他文本。\n\n{json.dumps(payload, ensure_ascii=False)}"
         text = client.chat_with_images(model_name, prompt, [], max_tokens=1200, temperature=0.2)
     else:
+        kwargs = {}
+        if _is_qwen35(model_name):
+            kwargs["extra_body"] = make_no_thinking_extra_body()
         resp = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}],
             temperature=0.2,
             max_completion_tokens=1200,
+            **kwargs,
         )
-        text = resp.choices[0].message.content.strip()
+        text = strip_thinking(resp.choices[0].message.content.strip())
 
     # Try to extract JSON from the response
     try:

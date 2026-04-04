@@ -40,7 +40,7 @@ def load_workflows_config(workflows_path: str = "workflows.yaml") -> Dict[str, A
 def get_default_config() -> Dict[str, Any]:
     return {
         "llm_base_url": "http://localhost:8000/v1",
-        "llm_model": "qwen-vl",
+        "llm_model": "qwen3.5-9b",
         "embed_base_url": "http://localhost:8000/v1",
         "embed_model": "qwen-embed",
         "cache_root": "./cache",
@@ -54,7 +54,7 @@ def get_default_config() -> Dict[str, Any]:
         "google_api_key": None,
         "google_search_engine_id": None,
         "direct_model": False,
-        "model_path": "/models/qwen-vl",
+        "model_path": None,
         "tokenizer_path": None,
         "log_format": "text",  # "json" for structured logging
     }
@@ -63,13 +63,13 @@ def get_default_models_config() -> Dict[str, Any]:
     return {
         "mllm": {
             "heavy": {
-                "model_name": "qwen-vl-7b",
+                "model_name": "qwen3.5-9b",
                 "base_url": "http://localhost:8000/v1",
                 "max_tokens": 512,
                 "temperature": 0.7
             },
             "light": {
-                "model_name": "qwen-vl-1b",
+                "model_name": "qwen3.5-4b",
                 "base_url": "http://localhost:8000/v1",
                 "max_tokens": 256,
                 "temperature": 0.5

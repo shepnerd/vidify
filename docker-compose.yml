@@ -11,15 +11,22 @@ services:
       - vllm
     environment:
       - LLM_BASE_URL=http://vllm:8000/v1
-      - LLM_MODEL=qwen-vl
+      - LLM_MODEL=qwen3.5-9b
 
   vllm:
     image: vllm/vllm-openai:latest
     ports:
       - "8000:8000"
-    command: --model /models/qwen-vl --host 0.0.0.0 --port 8000
+    command: >
+      --model /models/qwen3.5-9b
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len 65536
+      --reasoning-parser qwen3
+      --allowed-local-media-path /app/cache
     volumes:
       - /path/to/models:/models  # Adjust path
+      - ./cache:/app/cache
     deploy:
       resources:
         reservations:

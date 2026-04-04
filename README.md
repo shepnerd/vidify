@@ -39,15 +39,30 @@ pip install -r requirements.txt
 
 ### 2. Start model serving
 
+**Qwen3.5 (recommended):**
 ```bash
-vllm serve /path/to/qwen-vl \
+# Requires vLLM nightly for Qwen3.5 support
+uv pip install vllm --torch-backend=auto --extra-index-url https://wheels.vllm.ai/nightly
+
+# Auto-detect local model or download from HuggingFace
+bash scripts/serving_qwen3_5.sh
+
+# Or manually:
+vllm serve Qwen/Qwen3.5-9B \
   --host 0.0.0.0 --port 8000 \
+  --max-model-len 65536 \
+  --reasoning-parser qwen3 \
   --allowed-local-media-path $(pwd)/cache
+```
+
+**Qwen3-VL (legacy):**
+```bash
+bash scripts/serving_qwen3vl.sh
 ```
 
 On a GPU cluster:
 ```bash
-bash scripts/serving_qwen3vl.sh
+TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
 ```
 
 ### 3. Run
@@ -267,10 +282,10 @@ Model tiers in `models.yaml`:
 ```yaml
 mllm:
   heavy:
-    model_name: qwen-vl-7b     # full 7B model for detailed analysis
+    model_name: qwen3.5-9b     # Qwen3.5 unified VL model (recommended)
     base_url: http://localhost:8000/v1
   light:
-    model_name: qwen-vl-1b     # lightweight model for fast per-frame captioning
+    model_name: qwen3.5-4b     # Lightweight model for fast per-frame captioning
     base_url: http://localhost:8000/v1
 ```
 
@@ -422,7 +437,8 @@ docker run -p 9000:9000 vidcopilot
 
 - **System:** ffmpeg, yt-dlp, Python 3.11+
 - **GPU:** vLLM-compatible GPU for model serving (or use `--direct-model` for local loading)
-- **Models:** Qwen3-VL (default), configurable via `models.yaml`
+- **Models:** Qwen3.5 (default, recommended), Qwen3-VL (legacy), configurable via `models.yaml`
+- **vLLM:** Nightly build required for Qwen3.5 (`uv pip install vllm --extra-index-url https://wheels.vllm.ai/nightly`)
 
 ## Documentation
 

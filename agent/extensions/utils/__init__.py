@@ -32,7 +32,7 @@ def split_video_segment(video_path: str, start: float, duration: float,
     """Extract a video segment with re-encoding and downscale.
 
     Re-encoding (instead of ``-c copy``) ensures the output has correct
-    keyframes and is readable by OpenCV / Qwen3-VL frame extraction.
+    keyframes and is readable by OpenCV / Qwen3.5 frame extraction.
     Downscaling to *scale_w* (default 640px wide) reduces MLLM token
     cost without losing semantic information.
 

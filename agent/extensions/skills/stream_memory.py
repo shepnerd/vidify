@@ -14,6 +14,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 
 from agent.core.schemas import StreamSegment, StreamMemory
+from agent.extensions.models.thinking import strip_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class StreamMemoryManager:
                 temperature=0.3,
                 max_completion_tokens=300,
             )
-            self._global_summary = resp.choices[0].message.content.strip()
+            self._global_summary = strip_thinking(resp.choices[0].message.content.strip())
         except Exception as e:
             logger.error(f"Failed to update global summary: {e}")
             # Fallback: concatenate last few captions
