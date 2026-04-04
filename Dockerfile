@@ -21,6 +21,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY agent /app/agent
 COPY server /app/server
 
+# 拷贝配置文件
+COPY models.yaml /app/models.yaml
+COPY hooks.yaml /app/hooks.yaml
+COPY workflows.yaml /app/workflows.yaml
+
 # 默认缓存目录（可通过挂载覆盖）
 RUN mkdir -p /app/cache
 ENV CACHE_ROOT=/app/cache

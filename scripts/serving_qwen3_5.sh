@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Serve Qwen3.5-9B for VidCopilot.
 #
-# Requires vLLM nightly (>= 0.17) for Qwen3.5 support:
-#   uv pip install vllm --torch-backend=auto --extra-index-url https://wheels.vllm.ai/nightly
+# Requires vLLM >= 0.19.0 for Qwen3.5 support:
+#   pip install "vllm>=0.19.0"
 #
 # Qwen3.5 is a unified vision-language model with:
 #   - Gated DeltaNet hybrid architecture (linear + full attention)

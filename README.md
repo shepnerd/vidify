@@ -41,8 +41,8 @@ pip install -r requirements.txt
 
 **Qwen3.5 (recommended):**
 ```bash
-# Requires vLLM nightly for Qwen3.5 support
-uv pip install vllm --torch-backend=auto --extra-index-url https://wheels.vllm.ai/nightly
+# vLLM >= 0.19.0 required for Qwen3.5 support
+pip install "vllm>=0.19.0"
 
 # Auto-detect local model or download from HuggingFace
 bash scripts/serving_qwen3_5.sh
@@ -438,7 +438,7 @@ docker run -p 9000:9000 vidcopilot
 - **System:** ffmpeg, yt-dlp, Python 3.11+
 - **GPU:** vLLM-compatible GPU for model serving (or use `--direct-model` for local loading)
 - **Models:** Qwen3.5 (default, recommended), Qwen3-VL (legacy), configurable via `models.yaml`
-- **vLLM:** Nightly build required for Qwen3.5 (`uv pip install vllm --extra-index-url https://wheels.vllm.ai/nightly`)
+- **vLLM:** >= 0.19.0 required for Qwen3.5 (`pip install "vllm>=0.19.0"`)
 
 ## Documentation
 
