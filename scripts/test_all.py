@@ -55,6 +55,15 @@ from agent.extensions.utils.serving import (
     probe_vllm, find_existing_service, read_serving_ip,
     launch_serving, wait_for_serving, get_model_name, make_client,
 )
+from agent.extensions.models.thinking import make_no_thinking_extra_body
+
+
+def _no_think_kwargs(model_name: str) -> dict:
+    """Return extra_body to disable Qwen3.5 thinking mode for direct API calls."""
+    name = model_name.lower().replace("-", "").replace("_", "")
+    if "qwen3.5" in name or "qwen35" in name:
+        return {"extra_body": make_no_thinking_extra_body()}
+    return {}
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 _T0 = time.time()
@@ -139,8 +148,9 @@ def test_frame_caption(video_path: str, cache_dir: str,
             model=model_name,
             messages=[{"role": "user", "content": content}],
             max_completion_tokens=128, temperature=0.2,
+            **_no_think_kwargs(model_name),
         )
-        caption = resp.choices[0].message.content.strip()
+        caption = (resp.choices[0].message.content or "").strip()
         results.append({"frame": frame["id"], "ts": frame["ts"], "caption": caption})
         log(f"  [{frame['id']} @ {frame['ts']:.1f}s] {caption[:80]}")
 
@@ -172,8 +182,9 @@ def test_video_caption(video_path: str, cache_dir: str,
             model=model_name,
             messages=[{"role": "user", "content": content}],
             max_completion_tokens=256, temperature=0.2,
+            **_no_think_kwargs(model_name),
         )
-        caption = resp.choices[0].message.content.strip()
+        caption = (resp.choices[0].message.content or "").strip()
         segments.append({"start": start, "end": start + 15, "caption": caption})
         log(f"  Caption: {caption[:100]}")
 
@@ -392,8 +403,9 @@ def test_video_qa(video_path: str, cache_dir: str,
         model=model_name,
         messages=[{"role": "user", "content": content}],
         temperature=0.3, max_completion_tokens=512,
+        **_no_think_kwargs(model_name),
     )
-    answer = resp.choices[0].message.content.strip()
+    answer = (resp.choices[0].message.content or "").strip()
     log(f"  Answer: {answer[:200]}")
     assert len(answer) > 10, "Answer too short"
     log("  PASS")

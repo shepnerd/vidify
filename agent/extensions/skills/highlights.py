@@ -1,10 +1,30 @@
 # agent/skills/highlights.py
 import json
+import re
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
 from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 from agent.core.schemas import HighlightClip
+
+
+def _extract_json_array(text: str) -> list:
+    """Extract a JSON array from text that may contain markdown fences or prose."""
+    # Try direct parse first
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # Try extracting from ```json ... ``` fences
+    m = re.search(r"```(?:json)?\s*\n?(\[.*?\])\s*\n?```", text, re.DOTALL)
+    if m:
+        return json.loads(m.group(1))
+    # Try finding first [ ... ] block
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if m:
+        return json.loads(m.group(0))
+    raise json.JSONDecodeError("No JSON array found in response", text, 0)
 
 def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str,
                       max_clips: int = 5,
@@ -41,6 +61,6 @@ def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str
             max_completion_tokens=800,
             **kwargs,
         )
-        text = strip_thinking(resp.choices[0].message.content.strip())
-    arr = json.loads(text)
+        text = strip_thinking((resp.choices[0].message.content or "").strip())
+    arr = _extract_json_array(text)
     return [HighlightClip(start=o["start"], end=o["end"], reason=o["reason"], output_path="") for o in arr]

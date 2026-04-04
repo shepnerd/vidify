@@ -37,7 +37,17 @@ pip install -r requirements.txt
 # System deps: ffmpeg, yt-dlp, Python 3.11+
 ```
 
-### 2. Start model serving
+### 2. Configure cluster environment (GPU cluster only)
+
+```bash
+cp .env.example .env
+# Edit .env with your cluster settings:
+#   RL_CHARGED_GROUP — your quota group
+#   RL_MOUNT         — GPFS mount points (project data + shared-public for CUDA)
+#   CUDA_HOME        — shared CUDA toolkit path (for flashinfer JIT on Qwen3.5)
+```
+
+### 3. Start model serving
 
 **Qwen3.5 (recommended):**
 ```bash
@@ -55,17 +65,28 @@ vllm serve Qwen/Qwen3.5-9B \
   --allowed-local-media-path $(pwd)/cache
 ```
 
+**On a GPU cluster (one command):**
+```bash
+# Launches vLLM on cluster GPUs, waits for ready, runs full test suite
+bash scripts/run_test_gpu.sh
+
+# Options:
+bash scripts/run_test_gpu.sh --gpu 2 --video media/my_video.mp4
+bash scripts/run_test_gpu.sh --api-base http://10.0.0.1:8000/v1   # reuse existing endpoint
+bash scripts/run_test_gpu.sh --model qwen3vl                       # use Qwen3-VL instead
+```
+
 **Qwen3-VL (legacy):**
 ```bash
 bash scripts/serving_qwen3vl.sh
 ```
 
-On a GPU cluster:
+On a GPU cluster (manual):
 ```bash
 TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
 ```
 
-### 3. Run
+### 4. Run
 
 **CLI:**
 ```bash
@@ -291,6 +312,48 @@ mllm:
 
 ## E2E Testing
 
+### GPU Cluster (one command)
+
+The `run_test_gpu.sh` script handles the full lifecycle: load `.env`, discover/launch vLLM on GPU nodes, wait for flashinfer JIT compilation, and run all 17 skill tests.
+
+```bash
+# Default: Qwen3.5-9B on 4 GPUs with taste_in_china_s1e1.mp4
+bash scripts/run_test_gpu.sh
+
+# Custom video and GPU count
+bash scripts/run_test_gpu.sh --gpu 2 --video media/my_video.mp4
+
+# Reuse an already-running vLLM endpoint
+bash scripts/run_test_gpu.sh --api-base http://10.0.0.1:8000/v1
+
+# Run specific tests only
+bash scripts/run_test_gpu.sh --tests "frame_caption video_qa highlights"
+
+# Use Qwen3-VL instead of Qwen3.5
+bash scripts/run_test_gpu.sh --model qwen3vl
+```
+
+**Prerequisites:** `.env` must be configured with `RL_CHARGED_GROUP`, `RL_MOUNT` (including shared-public for CUDA toolkit), and `CUDA_HOME`. See `.env.example`.
+
+### Local / Manual
+
+The `test_all.py` script runs all 17 skill tests against a local video:
+
+```bash
+# Auto-detect/launch serving + run all tests
+python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4
+
+# Use existing endpoint
+python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --api-base http://localhost:8000/v1
+
+# Specific tests
+python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --tests frames qa highlights
+```
+
+Tests: `video_probe` | `frame_sample` | `audio_extract` | `asr` | `ocr` | `object_detection` | `subtitle_parse` | `metadata_extract` | `content_sufficiency` | `needs_visual` | `asr_first_brief` | `frame_caption` | `video_caption` | `timeline` | `video_qa` | `highlights` | `video_edit`
+
+### YouTube E2E
+
 The `test_youtube_e2e.py` script auto-discovers or launches model serving, downloads a YouTube video, and runs a full test suite:
 
 ```bash
@@ -376,6 +439,7 @@ agent/
     logging_config.py    # Structured JSON logging, WorkflowTracker
   extensions/
     models/              # vLLM client, direct model loader
+      thinking.py          # Qwen3.5 thinking mode utilities (strip/extract/disable)
     skills/              # Processing skills
       subtitle_parser.py   # VTT/SRT parsing into Transcript
       content_sufficiency.py # Heuristic check: skip visuals if transcript is enough
@@ -388,16 +452,43 @@ agent/
       live_stream_processing.py # Real-time stream processor with SlowFast
       ...                  # OCR, object detection, emotion, FAISS, etc.
     workflows/           # Pipelines (brief, detailed, index, ask, highlights, report, live)
-    utils/               # Caching, hashing
+    utils/               # Caching, hashing, serving utilities
+      serving.py           # vLLM discovery, launch (Qwen3.5/3-VL), health monitoring
   config.py              # YAML config loader
   main.py                # CLI entry point
 server/
   app.py                 # FastAPI REST server (port 9000)
 scripts/                 # Test and demo scripts
+  run_test_gpu.sh          # One-command: launch vLLM on cluster + run full test suite
+  test_all.py              # 17-skill test suite for local videos
+  test_youtube_e2e.py      # YouTube E2E test
+  serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B
+  serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
+  rl.sh                    # GPU cluster job launcher (rlaunch wrapper)
 docs/                    # Detailed documentation
+.env                     # Cluster config: quota group, GPFS mounts, CUDA_HOME (gitignored)
+.env.example             # Template for .env
 ```
 
 ## Configuration
+
+### Cluster Environment (`.env`)
+
+For GPU cluster deployments, configure `.env` (gitignored):
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `RL_CHARGED_GROUP` | Cluster quota group for GPU jobs | `ptdata_gpu` |
+| `RL_MOUNT` | GPFS mount points (comma-separated) | `gpfs://gpfs2/sfteval:...,gpfs://gpfs2/gpfs2-shared-public:...` |
+| `CUDA_HOME` | Shared CUDA toolkit for flashinfer JIT | `/mnt/shared-storage-gpfs2/gpfs2-shared-public/soft/cuda/12.8` |
+
+**Why `CUDA_HOME`?** Qwen3.5's GDN (Gated DeltaNet) layers require flashinfer, which JIT-compiles CUDA kernels at first inference. GPU nodes typically have no internet access, so `nvcc` must come from shared storage.
+
+### Model & Workflow Config
 
 Optional YAML files in the project root:
 

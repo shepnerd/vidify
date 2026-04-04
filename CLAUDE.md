@@ -31,13 +31,16 @@ uvicorn server.app:app --host 0.0.0.0 --port 9000
 ### Run tests
 ```bash
 pytest tests/                          # Unit tests (CI uses this)
+bash scripts/run_test_gpu.sh           # Full GPU test: launch vLLM + run 17-skill suite (reads .env)
+bash scripts/run_test_gpu.sh --api-base http://host:8000/v1  # Reuse existing vLLM
+python scripts/test_all.py --video-path media/video.mp4 --api-base http://host:8000/v1  # Manual
 python scripts/test_youtube_e2e.py     # E2E test (requires vLLM + internet)
-python scripts/test_youtube_e2e.py --api-base http://host:8000/v1 --tests frames qa
 ```
 
 ### Start vLLM model server
 ```bash
-bash scripts/serving_qwen3vl.sh       # Launches vLLM on port 8000
+bash scripts/serving_qwen3_5.sh       # Qwen3.5-9B (recommended) — requires vLLM >= 0.19.0
+bash scripts/serving_qwen3vl.sh       # Qwen3-VL (legacy) — launches vLLM on port 8000
 ```
 
 ### Docker
@@ -70,10 +73,11 @@ Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirector
 - `ask` requires an index; it auto-builds one if missing.
 
 ### Model interfaces
-All LLM/embedding calls go through the OpenAI SDK pointed at a vLLM server (`/v1/chat/completions`, `/v1/embeddings`). Default model is Qwen3-VL (multimodal). Other models (Whisper, PaddleOCR, YOLOv8, Wav2Vec2) are loaded directly via their respective libraries.
+All LLM/embedding calls go through the OpenAI SDK pointed at a vLLM server (`/v1/chat/completions`, `/v1/embeddings`). Default model is Qwen3.5-9B (multimodal, unified VL). For Qwen3.5, thinking mode is disabled in pipeline calls via `enable_thinking: False` (see `agent/extensions/models/thinking.py`). Other models (Whisper, PaddleOCR, YOLOv8, Wav2Vec2) are loaded directly via their respective libraries.
 
 ## Configuration
 
+- **`.env`** — Cluster config: `RL_CHARGED_GROUP`, `RL_MOUNT` (dual GPFS mounts), `CUDA_HOME` (for flashinfer JIT). Copy from `.env.example`.
 - **`models.yaml`** — Model selection and parameters (MLLM, OCR, detection, ASR, emotion, translation)
 - **`workflows.yaml`** — Workflow step definitions and feature toggles
 - **`config.yaml`** — General config (merged with defaults from `agent/config.py`)

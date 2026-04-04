@@ -52,3 +52,4 @@ Thumbs.db
 # Environment files
 .env
 .env.*
+!.env.example

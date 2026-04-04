@@ -1,20 +1,26 @@
 from setuptools import setup, find_packages
 
 with open("requirements.txt") as f:
-    requirements = f.read().splitlines()
+    requirements = [
+        line.strip() for line in f
+        if line.strip() and not line.startswith("#")
+    ]
 
 setup(
     name="vidcopilot",
-    version="0.1.0",
+    version="0.2.0",
+    description="Video understanding agent — analyze, search, and edit videos with LLMs",
     packages=find_packages(),
     install_requires=requirements,
     extras_require={
         "detection": ["ultralytics>=8.0.0"],
+        "dev": ["pytest>=7.0.0", "pytest-asyncio>=0.21.0"],
     },
     entry_points={
         'console_scripts': [
             'vidcopilot=agent.main:cli',
         ],
     },
+    python_requires=">=3.11",
     include_package_data=True,
 )
