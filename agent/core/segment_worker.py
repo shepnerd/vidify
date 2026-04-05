@@ -2,7 +2,11 @@
 """Per-segment video processing worker.
 
 Processes a single VideoSegment through the visual pipeline:
-frame sampling → (optional) MLLM captioning → OCR / detection / emotion.
+frame sampling → [captioning ∥ OCR ∥ detection ∥ emotion] (all in parallel).
+
+After frame sampling, captioning and advanced analysis (OCR, detection, emotion)
+run concurrently because they all only need frame *paths*, not captions.
+Captioning writes to FrameSet.items[].caption; the others read pixel data.
 
 Designed to be called from run_segments_parallel() for concurrent execution.
 """
@@ -27,6 +31,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _run_captioning(frames_dump, llm_model, llm_base_url, direct_model, model_path, tokenizer_path):
+    """Wrapper for caption_frames that takes/returns serializable data."""
+    frames = FrameSet(**frames_dump)
+    captioned = caption_frames(
+        frames, llm_model, llm_base_url, batch_size=8,
+        direct_model=direct_model, model_path=model_path,
+        tokenizer_path=tokenizer_path,
+    )
+    return captioned.model_dump()
+
+
 def process_segment(
     segment: VideoSegment,
     asset,
@@ -41,6 +56,9 @@ def process_segment(
     max_parallel_skills: int = 3,
 ) -> Dict[str, Any]:
     """Process a single video segment through the visual pipeline.
+
+    After frame sampling, captioning and advanced analysis run in parallel
+    since they all only need frame paths (not captions).
 
     Args:
         segment: VideoSegment with time range and cache directory.
@@ -70,16 +88,13 @@ def process_segment(
     )
     logger.info("[segment_worker] %s: sampled %d frames", seg_label, len(frames.items))
 
-    # --- Step 2: Optional MLLM captioning ---
-    if need_captioning and frames.items:
-        logger.info("[segment_worker] %s: running MLLM captioning on %d frames", seg_label, len(frames.items))
-        frames = caption_frames(
-            frames, llm_model, llm_base_url, batch_size=8,
-            direct_model=direct_model, model_path=model_path,
-            tokenizer_path=tokenizer_path,
-        )
+    if not frames.items:
+        logger.warning("[segment_worker] %s: no frames sampled, skipping", seg_label)
+        return {"frames": frames.model_dump(), "ocr": {}, "objects": {}, "emotions": {}}
 
-    # --- Step 3: Parallel advanced analysis (OCR, detection, emotion) ---
+    # --- Step 2: Run captioning ∥ OCR ∥ detection ∥ emotion in parallel ---
+    # All skills only need frame paths. Captioning writes captions to FrameSet;
+    # OCR/detection/emotion read pixel data from the same paths independently.
     frame_paths = [f.path for f in frames.items]
 
     _safe_ocr = skill_guard("OCR", optional=True, default={})(
@@ -88,8 +103,18 @@ def process_segment(
     _safe_emotion = skill_guard("Emotion Analysis", optional=True, default={})(
         analyze_emotions
     )
+    _safe_caption = skill_guard("Captioning", optional=True, default=None)(
+        _run_captioning
+    )
 
     parallel_skills = []
+
+    # Captioning runs alongside analysis — both only need frame paths
+    if need_captioning:
+        parallel_skills.append(("captioning", _safe_caption,
+                                (frames.model_dump(), llm_model, llm_base_url,
+                                 direct_model, model_path, tokenizer_path), {}))
+
     if frame_paths:
         parallel_skills.append(("ocr", _safe_ocr, (frame_paths,), {}))
     if detect_objects_in_video_frames and frame_paths:
@@ -100,10 +125,19 @@ def process_segment(
     if audio_path and frame_paths:
         parallel_skills.append(("emotions", _safe_emotion, (audio_path, frame_paths), {}))
 
-    parallel_results = run_skills_parallel(parallel_skills, max_workers=max_parallel_skills)
+    # +1 worker for captioning if it's included
+    workers = max_parallel_skills + (1 if need_captioning else 0)
+    parallel_results = run_skills_parallel(parallel_skills, max_workers=workers)
+
+    # Use captioned frames if captioning succeeded, else original frames
+    captioned = parallel_results.get("captioning")
+    if captioned is not None:
+        frames_out = captioned  # already a dict from model_dump()
+    else:
+        frames_out = frames.model_dump()
 
     result = {
-        "frames": frames.model_dump(),
+        "frames": frames_out,
         "ocr": parallel_results.get("ocr", {}),
         "objects": parallel_results.get("objects", {}),
         "emotions": parallel_results.get("emotions", {}),
