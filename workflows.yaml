@@ -40,7 +40,18 @@ detailed:
   force_visual: false
   prefer_subtitles_over_asr: true
   max_frames: 128
+  max_parallel_skills: 3
   output_format: "json"
+  # Parallel segment processing for long videos.
+  # When enabled, videos longer than min_video_duration are split into
+  # temporal segments and processed concurrently (frame sampling, captioning,
+  # OCR, detection, emotion). Results are merged before timeline generation.
+  parallel_segments:
+    enabled: false              # set true to activate
+    segment_duration: 300       # seconds per segment (5 min)
+    max_workers: 4              # concurrent segment workers
+    min_video_duration: 300     # only parallelize videos longer than this (seconds)
+    min_segment_duration: 30    # merge tail segments shorter than this
 
 live_stream:
   steps:

@@ -13,6 +13,7 @@ Video understanding agent — feed it a YouTube URL and get structured analysis,
 | **Enhance** | Web search context, multi-language support |
 | **Report** | Comprehensive analysis report generation |
 | **Stream** | Real-time live stream / webcam processing with adaptive segmentation and two-level memory |
+| **Parallel Segments** | Split long videos into temporal segments, process in parallel, merge results |
 | **Resilience** | Retry with exponential backoff, graceful degradation for optional skills, lifecycle hooks |
 
 ## Design Philosophy: ASR-First, Visuals as Last Resort
@@ -397,6 +398,61 @@ Optional skills (OCR, object detection, emotion analysis, translation, web searc
 
 In the `detailed` workflow, independent skills (OCR, object detection, emotion analysis) run in parallel using a thread pool. Configurable via `max_parallel_skills` in `workflows.yaml` (default: 3).
 
+### Parallel Segment Processing
+
+For long videos (default >5 min), both `brief` and `detailed` workflows can split the video into temporal segments and process them concurrently:
+
+```
+Long Video → split into N segments (by duration)
+                ↓
+    ┌───────────┼───────────┐
+    Seg 0       Seg 1       Seg 2  ...  (parallel workers)
+    │           │           │
+    frames      frames      frames
+    caption     caption     caption
+    OCR         OCR         OCR
+    detection   detection   detection
+    emotion     emotion     emotion
+    └───────────┼───────────┘
+                ↓
+         Merge results (adjust timestamps)
+                ↓
+         Timeline builder (on merged data)
+```
+
+**What stays global:** probe, ASR/subtitles, sufficiency check, timeline, translation, web search.
+**What gets parallelized:** frame sampling, MLLM captioning, OCR, object detection, emotion analysis.
+
+Enable in `workflows.yaml`:
+
+```yaml
+detailed:
+  parallel_segments:
+    enabled: true              # activate parallel processing
+    segment_duration: 300      # seconds per segment (5 min)
+    max_workers: 4             # concurrent segment workers
+    min_video_duration: 300    # only for videos longer than this
+    min_segment_duration: 30   # merge tiny tail into previous segment
+```
+
+**Pluggable segmentation:** The segmentation strategy is abstracted behind a `BaseSegmentor` interface (`agent/core/segment.py`). The default `DurationSegmentor` uses fixed-duration splits via FFmpeg time ranges. Custom segmentors (e.g., DL-based temporal boundary detection with TransNetV2, or semantic segmentation via CLIP) can be registered at runtime:
+
+```python
+from agent.core.segment import BaseSegmentor, register_segmentor
+
+class SceneSegmentor(BaseSegmentor):
+    """DL-based scene boundary detection (e.g., TransNetV2)."""
+    def segment(self, video_path, duration_sec, base_cache_dir):
+        boundaries = my_model.predict(video_path)  # your model here
+        segments = []
+        for i, (start, end) in enumerate(boundaries):
+            segments.append(self._make_segment(i, start, end, base_cache_dir))
+        return self._merge_tiny_tail(segments, duration_sec)
+
+register_segmentor("scene", SceneSegmentor)
+# Then set segmentor_name="scene" in config or split_video_into_segments()
+```
+
 ### Streaming Progress Events
 
 An event bus (`agent.core.events`) emits lifecycle events (`skill_start`, `skill_complete`, `skill_error`, `skill_skipped`, `progress`) at each pipeline step.
@@ -431,10 +487,12 @@ agent/
   core/
     schemas.py           # Data models (VideoAsset, FrameSet, Transcript, ContentMetadata, ...)
     orchestrator.py      # Workflow router with hook triggers
+    segment.py           # Parallel segment processing: BaseSegmentor interface, DurationSegmentor, merge functions
+    segment_worker.py    # Per-segment pipeline worker (frames → caption → OCR/detection/emotion)
     retry.py             # @retry_with_backoff decorator (exponential backoff + jitter)
     skill_guard.py       # @skill_guard decorator (graceful degradation)
     events.py            # EventBus for streaming progress notifications
-    parallel.py          # Parallel skill execution via ThreadPoolExecutor
+    parallel.py          # Parallel execution: run_skills_parallel + run_segments_parallel
     hooks.py             # Lifecycle hook manager (reads hooks.yaml)
     logging_config.py    # Structured JSON logging, WorkflowTracker
   extensions/

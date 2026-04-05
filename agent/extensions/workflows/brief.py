@@ -15,8 +15,33 @@ from agent.core.schemas import FrameStrategy, FrameSet, Transcript
 from agent.config import load_models_config, load_workflows_config
 from agent.core.skill_guard import skill_guard
 from agent.core.events import event_bus, EventType
+from agent.core.parallel import run_segments_parallel
+from agent.core.segment import split_video_into_segments, merge_framesets
 
 logger = logging.getLogger(__name__)
+
+
+def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
+                          direct_model, model_path, tokenizer_path):
+    """Process a single segment for brief workflow: sample frames + caption."""
+    from agent.core.segment import VideoSegment
+    seg_label = f"seg_{segment.index:03d}"
+    logger.info("[brief_segment] Processing %s", seg_label)
+
+    frames_dir = os.path.join(segment.cache_dir, "frames")
+    frames = sample_frames(
+        asset, frames_dir, strategy,
+        start_sec=segment.start_sec,
+        end_sec=segment.end_sec,
+    )
+    frames = caption_frames(
+        frames, llm_model, llm_base_url, batch_size=8,
+        direct_model=direct_model, model_path=model_path,
+        tokenizer_path=tokenizer_path,
+    )
+    logger.info("[brief_segment] %s: done (%d frames)", seg_label, len(frames.items))
+    return {"frames": frames.model_dump()}
+
 
 def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames: int = None,
              direct_model: bool = None, model_path: str = None, tokenizer_path: str = None,
@@ -86,11 +111,63 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     if not sufficiency.is_sufficient:
         event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
         logger.info("Transcript insufficient, running visual processing...")
+
+        # Check if parallel segments should be used
+        seg_cfg = wf_cfg.get('parallel_segments', {})
+        use_parallel = (
+            seg_cfg.get('enabled', False)
+            and meta.duration_sec >= seg_cfg.get('min_video_duration', 300)
+            and not supports_video(llm_model)  # video-native models handle full video
+        )
+
         if supports_video(llm_model):
             frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
                                                direct_model=direct_model, model_path=model_path,
                                                tokenizer_path=tokenizer_path)
+        elif use_parallel:
+            # Parallel segment path for long videos
+            segments = split_video_into_segments(
+                duration_sec=meta.duration_sec,
+                base_cache_dir=asset.cache_dir,
+                segment_duration=seg_cfg.get('segment_duration', 300),
+                min_segment_duration=seg_cfg.get('min_segment_duration', 30),
+            )
+            if len(segments) > 1:
+                per_seg_max = max(8, max_frames // len(segments))
+                strategy = FrameStrategy(type="scene", params={
+                    "scene_threshold": 0.3, "max_frames": per_seg_max,
+                })
+                logger.info("Brief parallel: %d segments, %d workers",
+                            len(segments), seg_cfg.get('max_workers', 4))
+
+                seg_outputs = run_segments_parallel(
+                    segments=segments,
+                    worker_fn=_brief_segment_worker,
+                    worker_kwargs={
+                        "asset": asset, "strategy": strategy,
+                        "llm_model": llm_model, "llm_base_url": llm_base_url,
+                        "direct_model": direct_model, "model_path": model_path,
+                        "tokenizer_path": tokenizer_path,
+                    },
+                    max_workers=seg_cfg.get('max_workers', 4),
+                )
+                seg_frames = [
+                    FrameSet(**out["frames"]) if isinstance(out.get("frames"), dict)
+                    else FrameSet(items=[], strategy=strategy)
+                    for out in seg_outputs
+                ]
+                frames = merge_framesets(seg_frames, segments, strategy)
+            else:
+                # Fallback: single segment
+                frames = sample_frames(
+                    asset, os.path.join(asset.cache_dir, "frames"),
+                    FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": max_frames})
+                )
+                frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
+                                        direct_model=direct_model, model_path=model_path,
+                                        tokenizer_path=tokenizer_path)
         else:
+            # Original sequential path
             frames = sample_frames(
                 asset, os.path.join(asset.cache_dir, "frames"),
                 FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": max_frames})

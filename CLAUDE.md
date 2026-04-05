@@ -59,14 +59,26 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 
 - **`agent/core/schemas.py`** — Pydantic models: `VideoAsset`, `FrameSet`, `Transcript`, `TimelineChapter`, `HighlightClip`, `AnalysisResult`, etc. All data flows through these types.
 - **`agent/core/orchestrator.py`** — Routes mode (brief/detailed/index/ask/highlights/report) to the corresponding workflow function.
-- **`agent/extensions/workflows/`** — High-level pipelines that compose skills. `brief.py` and `detailed.py` are the primary analysis workflows; others (index, ask, highlights, report) build on their output.
+- **`agent/core/segment.py`** — Parallel segment processing: `BaseSegmentor` ABC, `DurationSegmentor` (default, FFmpeg-based), `VideoSegment` model, result merge functions. Pluggable via `register_segmentor()` / `get_segmentor()` for future DL-based segmentors (e.g., TransNetV2, semantic boundary detection).
+- **`agent/core/segment_worker.py`** — Per-segment processing worker: runs frame sampling → captioning → OCR/detection/emotion for one time slice, called from `run_segments_parallel()`.
+- **`agent/core/parallel.py`** — `run_skills_parallel()` for concurrent skill execution within a segment; `run_segments_parallel()` for concurrent segment processing across a long video. Both use ThreadPoolExecutor with error isolation.
+- **`agent/extensions/workflows/`** — High-level pipelines that compose skills. `brief.py` and `detailed.py` are the primary analysis workflows; others (index, ask, highlights, report) build on their output. Both `brief` and `detailed` support parallel segment processing for long videos (gated by config + duration threshold).
 - **`agent/extensions/skills/`** — 23 self-contained processing units (frame sampling, vision captioning, ASR, OCR, object detection, emotion analysis, FAISS indexing/search, etc.). Each skill is a standalone module with a main function.
+- **`agent/extensions/skills/frame_sampler.py`** — Supports `start_sec`/`end_sec` params for segment-level processing via FFmpeg `-ss`/`-to` flags (no physical video splitting).
 - **`agent/extensions/models/`** — Model interface layer. `vllm_openai_client.py` wraps the OpenAI SDK to talk to vLLM; `direct_model_loader.py` loads models locally without a server.
 - **`agent/config.py`** — Config loader with precedence: CLI params > YAML files (`models.yaml`, `workflows.yaml`) > built-in defaults. Default LLM endpoint is `http://localhost:8000/v1`.
 - **`server/app.py`** — FastAPI REST API (endpoints: `/analyze`, `/index`, `/ask`, `/highlights`, `/report`, `/health`).
 
 ### Cache structure
-Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, and highlight clips.
+Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, highlight clips, and parallel segment sub-caches (`segments/seg_000/`, etc.).
+
+### Parallel segment processing
+For long videos (configurable, default >5 min), the `detailed` and `brief` workflows split the video into temporal segments and process them concurrently:
+- **Global steps** (sequential): probe, ASR/subtitles, sufficiency check, timeline builder, web search, translation
+- **Per-segment steps** (parallel): frame sampling, MLLM captioning, OCR, object detection, emotion analysis
+- Results are merged with timestamp adjustment before timeline generation
+- Controlled by `parallel_segments` section in `workflows.yaml` (disabled by default)
+- Segmentation strategy is pluggable via `BaseSegmentor` interface (`agent/core/segment.py`): default is `DurationSegmentor` (FFmpeg time ranges); future options include DL-based segmentors (TransNetV2, semantic boundary detection) via `register_segmentor()`
 
 ### Workflow dependencies
 - `index` and `highlights` require a completed analysis (brief or detailed); they auto-run one if missing.
@@ -79,5 +91,5 @@ All LLM/embedding calls go through the OpenAI SDK pointed at a vLLM server (`/v1
 
 - **`.env`** — Cluster config: `RL_CHARGED_GROUP`, `RL_MOUNT` (dual GPFS mounts), `CUDA_HOME` (for flashinfer JIT). Copy from `.env.example`.
 - **`models.yaml`** — Model selection and parameters (MLLM, OCR, detection, ASR, emotion, translation)
-- **`workflows.yaml`** — Workflow step definitions and feature toggles
+- **`workflows.yaml`** — Workflow step definitions, feature toggles, and parallel segment config (`parallel_segments` section under `detailed`/`brief`)
 - **`config.yaml`** — General config (merged with defaults from `agent/config.py`)

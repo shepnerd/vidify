@@ -22,7 +22,9 @@ from agent.core.schemas import FrameStrategy, FrameSet, Transcript
 from agent.config import load_models_config, load_workflows_config
 from agent.core.skill_guard import skill_guard
 from agent.core.events import event_bus, EventType
-from agent.core.parallel import run_skills_parallel
+from agent.core.parallel import run_skills_parallel, run_segments_parallel
+from agent.core.segment import split_video_into_segments, merge_segment_results
+from agent.core.segment_worker import process_segment
 
 logger = logging.getLogger(__name__)
 
@@ -98,69 +100,32 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                                      force_visual=force_visual)
     logger.info("Content sufficiency: %s — %s", sufficiency.is_sufficient, sufficiency.reason)
 
-    # --- Step 4: Frame sampling (always, for OCR/detection) + conditional MLLM captioning ---
-    event_bus.emit_skill_start("Frame Sampling", progress_pct=28)
-    # In detailed mode, always sample frames for OCR and object detection (lightweight local models).
-    # Only skip the expensive MLLM captioning when transcript is sufficient.
-    frames_dir = os.path.join(asset.cache_dir, "frames")
-    frames = sample_frames(
-        asset, frames_dir,
-        FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+    # --- Parallel segment path vs. sequential path ---
+    seg_cfg = wf_cfg.get('parallel_segments', {})
+    use_parallel = (
+        seg_cfg.get('enabled', False)
+        and meta.duration_sec >= seg_cfg.get('min_video_duration', 300)
     )
 
-    if not sufficiency.is_sufficient:
-        event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
-        logger.info("Transcript insufficient, running MLLM frame captioning...")
-        if supports_video(llm_model):
-            frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
-                                               direct_model=direct_model, model_path=model_path,
-                                               tokenizer_path=tokenizer_path)
-        else:
-            frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
-                                    direct_model=direct_model, model_path=model_path,
-                                    tokenizer_path=tokenizer_path)
-    else:
-        logger.info("Transcript sufficient, skipping MLLM captioning. Frames sampled for OCR/detection only.")
-        event_bus.emit_skill_skipped("Visual Captioning", reason="transcript sufficient", progress_pct=45)
-    event_bus.emit_skill_complete("Frame Sampling", progress_pct=45)
-
-    # --- Step 5: Advanced analysis (OCR, object detection, emotion) ---
-    event_bus.emit_skill_start("Advanced Analysis", message="Running OCR, detection, emotion...", progress_pct=45)
-    # BUG FIX: was `frames.frames` — correct attribute is `frames.items`
-    frame_paths = [f.path for f in frames.items]
-
-    # Wrap optional skills with graceful degradation — if a dependency is
-    # missing or a model fails, we skip that skill instead of crashing.
-    _safe_ocr = skill_guard("OCR", optional=True, default={})(
-        extract_text_from_video_frames
-    )
-    _safe_emotion = skill_guard("Emotion Analysis", optional=True, default={})(
-        analyze_emotions
-    )
-
-    # Run independent skills in parallel (inspired by Claude Code's concurrent tool execution)
-    parallel_skills = []
-    if frame_paths:
-        parallel_skills.append(("ocr", _safe_ocr, (frame_paths,), {}))
-    if detect_objects_in_video_frames and frame_paths:
-        _safe_detect = skill_guard("Object Detection", optional=True, default={})(
-            detect_objects_in_video_frames
+    if use_parallel:
+        frames, ocr_results, object_results, emotion_results = _run_parallel_segments(
+            asset=asset, meta=meta, sufficiency=sufficiency,
+            llm_model=llm_model, llm_base_url=llm_base_url,
+            max_frames=max_frames, direct_model=direct_model,
+            model_path=model_path, tokenizer_path=tokenizer_path,
+            audio_path=audio_path, seg_cfg=seg_cfg, wf_cfg=wf_cfg,
         )
-        parallel_skills.append(("objects", _safe_detect, (frame_paths,), {}))
-    if audio_path:
-        parallel_skills.append(("emotions", _safe_emotion, (audio_path, frame_paths), {}))
-
-    max_workers = wf_cfg.get('max_parallel_skills', 3)
-    parallel_results = run_skills_parallel(parallel_skills, max_workers=max_workers)
-
-    ocr_results = parallel_results.get("ocr", {})
-    object_results = parallel_results.get("objects", {})
-    emotion_results = parallel_results.get("emotions", {})
-    event_bus.emit_skill_complete("Advanced Analysis", progress_pct=60)
+    else:
+        frames, ocr_results, object_results, emotion_results = _run_sequential(
+            asset=asset, sufficiency=sufficiency,
+            llm_model=llm_model, llm_base_url=llm_base_url,
+            max_frames=max_frames, direct_model=direct_model,
+            model_path=model_path, tokenizer_path=tokenizer_path,
+            audio_path=audio_path, wf_cfg=wf_cfg,
+        )
 
     # --- Step 6: Translation ---
     event_bus.emit_skill_start("Translation", progress_pct=60)
-    # BUG FIX: was using `transcript` before it was defined; now it's defined above
     _safe_translate = skill_guard("Translation", optional=True, default=[])(
         translate_asr_results
     )
@@ -207,3 +172,144 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     }
     save_analysis(asset.cache_dir, out)
     return out
+
+
+def _run_sequential(asset, sufficiency, llm_model, llm_base_url, max_frames,
+                    direct_model, model_path, tokenizer_path, audio_path, wf_cfg):
+    """Original sequential path: frame sampling → captioning → parallel advanced analysis."""
+    # --- Frame sampling + conditional captioning ---
+    event_bus.emit_skill_start("Frame Sampling", progress_pct=28)
+    frames_dir = os.path.join(asset.cache_dir, "frames")
+    frames = sample_frames(
+        asset, frames_dir,
+        FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+    )
+
+    if not sufficiency.is_sufficient:
+        event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
+        logger.info("Transcript insufficient, running MLLM frame captioning...")
+        if supports_video(llm_model):
+            frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
+                                               direct_model=direct_model, model_path=model_path,
+                                               tokenizer_path=tokenizer_path)
+        else:
+            frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
+                                    direct_model=direct_model, model_path=model_path,
+                                    tokenizer_path=tokenizer_path)
+    else:
+        logger.info("Transcript sufficient, skipping MLLM captioning. Frames sampled for OCR/detection only.")
+        event_bus.emit_skill_skipped("Visual Captioning", reason="transcript sufficient", progress_pct=45)
+    event_bus.emit_skill_complete("Frame Sampling", progress_pct=45)
+
+    # --- Advanced analysis (OCR, object detection, emotion) ---
+    event_bus.emit_skill_start("Advanced Analysis", message="Running OCR, detection, emotion...", progress_pct=45)
+    frame_paths = [f.path for f in frames.items]
+
+    _safe_ocr = skill_guard("OCR", optional=True, default={})(
+        extract_text_from_video_frames
+    )
+    _safe_emotion = skill_guard("Emotion Analysis", optional=True, default={})(
+        analyze_emotions
+    )
+
+    parallel_skills = []
+    if frame_paths:
+        parallel_skills.append(("ocr", _safe_ocr, (frame_paths,), {}))
+    if detect_objects_in_video_frames and frame_paths:
+        _safe_detect = skill_guard("Object Detection", optional=True, default={})(
+            detect_objects_in_video_frames
+        )
+        parallel_skills.append(("objects", _safe_detect, (frame_paths,), {}))
+    if audio_path:
+        parallel_skills.append(("emotions", _safe_emotion, (audio_path, frame_paths), {}))
+
+    max_workers = wf_cfg.get('max_parallel_skills', 3)
+    parallel_results = run_skills_parallel(parallel_skills, max_workers=max_workers)
+
+    ocr_results = parallel_results.get("ocr", {})
+    object_results = parallel_results.get("objects", {})
+    emotion_results = parallel_results.get("emotions", {})
+    event_bus.emit_skill_complete("Advanced Analysis", progress_pct=60)
+
+    return frames, ocr_results, object_results, emotion_results
+
+
+def _run_parallel_segments(asset, meta, sufficiency, llm_model, llm_base_url,
+                           max_frames, direct_model, model_path, tokenizer_path,
+                           audio_path, seg_cfg, wf_cfg):
+    """Parallel segment path: split video → process segments concurrently → merge.
+
+    Each segment independently runs: frame sampling → captioning → OCR/detection/emotion.
+    Results are merged with timestamp adjustment before timeline generation.
+    """
+    segment_duration = seg_cfg.get('segment_duration', 300)
+    max_workers = seg_cfg.get('max_workers', 4)
+    min_segment = seg_cfg.get('min_segment_duration', 30)
+
+    segments = split_video_into_segments(
+        duration_sec=meta.duration_sec,
+        base_cache_dir=asset.cache_dir,
+        segment_duration=segment_duration,
+        min_segment_duration=min_segment,
+    )
+
+    if len(segments) <= 1:
+        logger.info("Video too short for segment parallelism, falling back to sequential.")
+        return _run_sequential(
+            asset=asset, sufficiency=sufficiency,
+            llm_model=llm_model, llm_base_url=llm_base_url,
+            max_frames=max_frames, direct_model=direct_model,
+            model_path=model_path, tokenizer_path=tokenizer_path,
+            audio_path=audio_path, wf_cfg=wf_cfg,
+        )
+
+    event_bus.emit_skill_start(
+        "Parallel Segments",
+        message=f"Processing {len(segments)} segments with {max_workers} workers...",
+        progress_pct=28,
+    )
+
+    # Distribute max_frames across segments proportionally
+    per_seg_max_frames = max(8, max_frames // len(segments))
+    strategy = FrameStrategy(type="scene", params={
+        "scene_threshold": 0.25,
+        "max_frames": per_seg_max_frames,
+    })
+
+    need_captioning = not sufficiency.is_sufficient
+
+    worker_kwargs = {
+        "asset": asset,
+        "strategy": strategy,
+        "need_captioning": need_captioning,
+        "llm_model": llm_model,
+        "llm_base_url": llm_base_url,
+        "direct_model": direct_model,
+        "model_path": model_path,
+        "tokenizer_path": tokenizer_path,
+        "audio_path": audio_path,
+        "max_parallel_skills": wf_cfg.get('max_parallel_skills', 3),
+    }
+
+    segment_outputs = run_segments_parallel(
+        segments=segments,
+        worker_fn=process_segment,
+        worker_kwargs=worker_kwargs,
+        max_workers=max_workers,
+    )
+
+    # Merge all segment results
+    merged = merge_segment_results(segment_outputs, segments)
+
+    frames = merged["frames"]
+    ocr_results = merged["ocr"]
+    object_results = merged["objects"]
+    emotion_results = merged["emotions"]
+
+    logger.info(
+        "Parallel segments done: %d total frames, %d OCR entries, %d object entries",
+        len(frames.items), len(ocr_results), len(object_results),
+    )
+    event_bus.emit_skill_complete("Parallel Segments", progress_pct=60)
+
+    return frames, ocr_results, object_results, emotion_results
