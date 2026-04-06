@@ -93,3 +93,23 @@ All LLM/embedding calls go through the OpenAI SDK pointed at a vLLM server (`/v1
 - **`models.yaml`** — Model selection and parameters (MLLM, OCR, detection, ASR, emotion, translation)
 - **`workflows.yaml`** — Workflow step definitions, feature toggles, and parallel segment config (`parallel_segments` section under `detailed`/`brief`)
 - **`config.yaml`** — General config (merged with defaults from `agent/config.py`)
+
+## GPU cluster usage
+
+**Always `set -a && source .env && set +a` before launching GPU jobs via `scripts/rl.sh`.** The `.env` file defines `RL_CHARGED_GROUP=ptdata_gpu` which is required for GPU allocation. Without it, `rl.sh` falls back to `my_gpu_group` (default) and jobs fail with permission errors.
+
+Example:
+```bash
+set -a && source .env && set +a
+bash scripts/rl.sh -gpu 4 -- bash -c "vllm serve ..."
+```
+
+### Qwen3-MLA model
+
+Qwen3-MLA replaces GQA with Multi-head Latent Attention. **vLLM cannot serve this model** — use the transformers-based server instead:
+```bash
+bash scripts/serving_qwen3_mla.sh           # Launches transformers-based OpenAI-compatible server on port 8001
+```
+- Checkpoint: `/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615`
+- Custom modeling code: `modeling_qwen3_vl_mla.py` (loaded via `trust_remote_code=True`)
+- MLA uses `kv_a_proj_with_mqa` + `kv_b_proj` instead of standard `q/k/v_proj` — incompatible with vLLM's built-in Qwen3VL handler
