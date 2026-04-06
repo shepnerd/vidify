@@ -14,6 +14,11 @@ mllm:
     max_tokens: 256
     model_name: qwen3.5-4b
     temperature: 0.5
+  mla:
+    base_url: http://localhost:8001/v1
+    max_tokens: 512
+    model_name: qwen3-mla
+    temperature: 0.7
 
 ocr:
   engine: paddleocr

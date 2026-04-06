@@ -11,8 +11,19 @@ for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
     os.environ.pop(_key, None)
 
 
+def _is_qwen3_mla(model_name: str) -> bool:
+    """Check if the model is a Qwen3-MLA variant (MLA attention, no thinking mode)."""
+    name = model_name.lower().replace("-", "").replace("_", "")
+    return "qwen3mla" in name or "qwen3vlmla" in name
+
+
 def _is_qwen35(model_name: str) -> bool:
-    """Check if the model is a Qwen3.5 variant (has thinking mode by default)."""
+    """Check if the model is a Qwen3.5 variant (has thinking mode by default).
+
+    Qwen3-MLA is NOT a Qwen3.5 variant — it's based on Qwen3-VL with MLA attention.
+    """
+    if _is_qwen3_mla(model_name):
+        return False
     name = model_name.lower().replace("-", "").replace("_", "")
     return "qwen3.5" in name or "qwen35" in name
 

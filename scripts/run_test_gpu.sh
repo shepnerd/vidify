@@ -24,7 +24,7 @@ GPU=4
 VIDEO="${PROJECT_ROOT}/media/taste_in_china_s1e1.mp4"
 API_BASE=""
 TESTS=""
-MODEL="qwen3.5"     # "qwen3.5" or "qwen3vl"
+MODEL="qwen3.5"     # "qwen3.5", "qwen3vl", or "qwen3-mla"
 TIMEOUT=900          # max seconds to wait for vLLM
 
 # ── Parse args ───────────────────────────────────────────────────────────────
@@ -114,6 +114,14 @@ else
                 MODEL_PATH="Qwen/Qwen3.5-9B"
             fi
             EXTRA_VLLM_ARGS="--reasoning-parser qwen3 --max-model-len 65536"
+        elif [[ "${MODEL}" == "qwen3-mla" ]]; then
+            MODEL_PATH="/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615"
+            if [[ ! -d "${MODEL_PATH}" ]]; then
+                echo "ERROR: qwen3-mla checkpoint not found: ${MODEL_PATH}" >&2
+                exit 1
+            fi
+            # qwen3-mla uses transformers-based server (vLLM incompatible with MLA attention)
+            EXTRA_VLLM_ARGS="__USE_TRANSFORMERS_SERVER__"
         else
             QWEN3VL_CACHE="${HOME}/.cache/huggingface/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots"
             if [[ -d "${QWEN3VL_CACHE}" ]]; then
@@ -133,12 +141,22 @@ else
         INNER_CMD="${ENV_SETUP}"'IP=$(hostname -I | awk '"'"'{print $1}'"'"'); '
         INNER_CMD+="echo \"\$IP\" > ${SERVING_IP_FILE}; "
         INNER_CMD+="echo \"[serving] Node IP: \$IP\" | tee ${LOG_FILE}; "
-        INNER_CMD+="exec vllm serve ${MODEL_PATH} "
-        INNER_CMD+="--host 0.0.0.0 --port 8000 "
-        INNER_CMD+="--tensor-parallel-size ${GPU} "
-        INNER_CMD+="--allowed-local-media-path ${PROJECT_ROOT}/cache "
-        INNER_CMD+="${EXTRA_VLLM_ARGS} "
-        INNER_CMD+="2>&1 | tee -a ${LOG_FILE}"
+
+        if [[ "${EXTRA_VLLM_ARGS}" == "__USE_TRANSFORMERS_SERVER__" ]]; then
+            # qwen3-mla: use transformers-based server
+            INNER_CMD+="exec python ${SCRIPT_DIR}/serving_qwen3_mla_transformers.py "
+            INNER_CMD+="--model ${MODEL_PATH} "
+            INNER_CMD+="--host 0.0.0.0 --port 8001 "
+            INNER_CMD+="--tp ${GPU} "
+            INNER_CMD+="2>&1 | tee -a ${LOG_FILE}"
+        else
+            INNER_CMD+="exec vllm serve ${MODEL_PATH} "
+            INNER_CMD+="--host 0.0.0.0 --port 8000 "
+            INNER_CMD+="--tensor-parallel-size ${GPU} "
+            INNER_CMD+="--allowed-local-media-path ${PROJECT_ROOT}/cache "
+            INNER_CMD+="${EXTRA_VLLM_ARGS} "
+            INNER_CMD+="2>&1 | tee -a ${LOG_FILE}"
+        fi
 
         # Launch via rl.sh in background
         bash "${SCRIPT_DIR}/rl.sh" -gpu "${GPU}" -- bash -c "${INNER_CMD}" &
@@ -163,7 +181,9 @@ else
             echo "  ... ${ELAPSED}s elapsed"
         done
         NODE_IP=$(cat "${SERVING_IP_FILE}")
-        API_BASE="http://${NODE_IP}:8000/v1"
+        VLLM_PORT=8000
+        [[ "${MODEL}" == "qwen3-mla" ]] && VLLM_PORT=8001
+        API_BASE="http://${NODE_IP}:${VLLM_PORT}/v1"
         echo "[vllm] GPU node IP: ${NODE_IP}"
 
         # Wait for vLLM /v1/models (flashinfer JIT may take 5-10 min on first run)

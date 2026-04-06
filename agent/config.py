@@ -73,6 +73,12 @@ def get_default_models_config() -> Dict[str, Any]:
                 "base_url": "http://localhost:8000/v1",
                 "max_tokens": 256,
                 "temperature": 0.5
+            },
+            "mla": {
+                "model_name": "qwen3-mla",
+                "base_url": "http://localhost:8001/v1",
+                "max_tokens": 512,
+                "temperature": 0.7
             }
         },
         "ocr": {
