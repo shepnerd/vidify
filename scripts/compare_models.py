@@ -222,6 +222,7 @@ def main():
     parser.add_argument("--runs", type=int, default=3, help="Runs per benchmark")
     parser.add_argument("--skip-pipeline", action="store_true", help="Skip full pipeline comparison")
     parser.add_argument("--skip-raw", action="store_true", help="Skip raw serving benchmarks")
+    parser.add_argument("--skip-video", action="store_true", help="Skip video benchmark (useful for single-GPU servers that may OOM)")
     args = parser.parse_args()
 
     client_a = make_client(args.api_base_a)
@@ -246,11 +247,14 @@ def main():
         print_comparison("Text-only Prompt", ra, rb, name_a, name_b)
 
         # --- Video benchmark ---
-        print("\n[2/3] Video prompt benchmark...")
-        video_prompt = "请描述这段视频的主要内容，包括场景、人物和关键动作。"
-        ra = bench_video_prompt(client_a, model_a, args.video, video_prompt, runs=min(args.runs, 2))
-        rb = bench_video_prompt(client_b, model_b, args.video, video_prompt, runs=min(args.runs, 2))
-        print_comparison("Video Prompt", ra, rb, name_a, name_b)
+        if not args.skip_video:
+            print("\n[2/3] Video prompt benchmark...")
+            video_prompt = "请描述这段视频的主要内容，包括场景、人物和关键动作。"
+            ra = bench_video_prompt(client_a, model_a, args.video, video_prompt, runs=min(args.runs, 2))
+            rb = bench_video_prompt(client_b, model_b, args.video, video_prompt, runs=min(args.runs, 2))
+            print_comparison("Video Prompt", ra, rb, name_a, name_b)
+        else:
+            print("\n[2/3] Video prompt benchmark... SKIPPED (--skip-video)")
 
         # --- Extract a frame for image benchmark ---
         print("\n[3/3] Image prompt benchmark...")
