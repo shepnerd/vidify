@@ -104,6 +104,8 @@ set -a && source .env && set +a
 bash scripts/rl.sh -gpu 4 -- bash -c "vllm serve ..."
 ```
 
+If start vllm for GPU jobs, remember to shutdown them down after finishing tasks.
+
 ### Qwen3-MLA model
 
 Qwen3-MLA replaces GQA with Multi-head Latent Attention. **vLLM cannot serve this model** — use the transformers-based server instead:
