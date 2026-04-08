@@ -115,3 +115,6 @@ bash scripts/serving_qwen3_mla.sh           # Launches transformers-based OpenAI
 - Checkpoint: `/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615`
 - Custom modeling code: `modeling_qwen3_vl_mla.py` (loaded via `trust_remote_code=True`)
 - MLA uses `kv_a_proj_with_mqa` + `kv_b_proj` instead of standard `q/k/v_proj` — incompatible with vLLM's built-in Qwen3VL handler
+
+## Convensions
+- Each time updates are introduced, remember to update README.md / CLAUDE.md and related setup files, if necessary. Trivial changes can be ignored for these files.
