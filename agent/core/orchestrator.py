@@ -35,7 +35,10 @@ def run(asset, mode: str, cfg: dict) -> dict:
                               tokenizer_path=cfg.get("tokenizer_path"),
                               include_web_search=cfg.get("include_web_search", False),
                               google_api_key=cfg.get("google_api_key"),
-                              google_search_engine_id=cfg.get("google_search_engine_id"))
+                              google_search_engine_id=cfg.get("google_search_engine_id"),
+                              frame_strategy=cfg.get("frame_strategy"),
+                              frame_fps=cfg.get("frame_fps"),
+                              force_visual=cfg.get("force_visual"))
         elif mode == "index":
             result = wf_index(asset,
                             llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],

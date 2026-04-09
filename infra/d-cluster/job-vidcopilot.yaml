@@ -21,7 +21,7 @@ metadata:
     lepton.sensetime.com/framework-type: 'PyTorch'
     ring-controller.atlas: 'ascend-910b'
   annotations:
-    sp-block: '2'
+    sp-block: '16'
 spec:
   schedulerName: 'volcano'
   minAvailable: 1
@@ -80,18 +80,20 @@ spec:
               resources:
                 limits:
                   cpu: '128'
-                  huawei.com/Ascend910: '2'
-                  memory: '100Gi'
+                  huawei.com/Ascend910: '16'
+                  memory: '800Gi'
                 requests:
                   cpu: '128'
-                  huawei.com/Ascend910: '2'
-                  memory: '100Gi'
+                  huawei.com/Ascend910: '16'
+                  memory: '800Gi'
               volumeMounts:
                 - name: 'vc-a3-llmit-data'
                   mountPath: '/data'
                 - name: 'shm-data'
                   mountPath: '/dev/shm'
               imagePullPolicy: 'IfNotPresent'
+          imagePullSecrets:
+            - name: ccr-pull-secret
           restartPolicy: 'Never'
           nodeSelector:
             accelerator-type: 'module-910c-8'

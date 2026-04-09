@@ -43,12 +43,15 @@ def cli(ctx, config, log_format):
 @click.option('--cache-root', default='./cache')
 @click.option('--question', default=None)
 @click.option('--max-frames', type=int, default=128)
+@click.option('--fps', type=float, default=None,
+              help='Frame sampling rate (frames per second). Overrides scene-based sampling.')
+@click.option('--force-visual', is_flag=True, help='Force visual processing even when transcript is sufficient')
 @click.option('--stream-source', default='webcam', type=click.Choice(['webcam', 'stream']),
               help='Source for live mode')
 @click.option('--stream-url', default=None, help='RTMP/HTTP URL for live stream mode')
 @click.option('--interactive', is_flag=True, help='Interactive mode')
 @click.pass_context
-def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, stream_source, stream_url, interactive):
+def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, force_visual, stream_source, stream_url, interactive):
     """Analyze a video."""
     cfg = ctx.obj['config']
     cfg.update({
@@ -61,6 +64,11 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, strea
         'stream_source': stream_source,
         'stream_url': stream_url,
     })
+    if fps is not None:
+        cfg['frame_strategy'] = 'fps'
+        cfg['frame_fps'] = fps
+    if force_visual:
+        cfg['force_visual'] = True
 
     if interactive:
         # Interactive mode: prompt for inputs

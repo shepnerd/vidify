@@ -46,7 +46,8 @@ def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
 def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames: int = None,
              direct_model: bool = None, model_path: str = None, tokenizer_path: str = None,
              include_web_search: bool = None, google_api_key: str = None, google_search_engine_id: str = None,
-             whisper_model: str = None, force_visual: bool = None) -> dict:
+             whisper_model: str = None, force_visual: bool = None,
+             frame_strategy: str = None, frame_fps: float = None) -> dict:
     # Load configurations
     models_config = load_models_config()
     workflows_config = load_workflows_config()
@@ -108,6 +109,12 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     logger.info("Content sufficiency: %s — %s", sufficiency.is_sufficient, sufficiency.reason)
 
     # --- Step 4: Conditional visual processing ---
+    # Build frame strategy from CLI params or defaults
+    def _make_strategy(mf=max_frames):
+        if frame_strategy == "fps" and frame_fps is not None:
+            return FrameStrategy(type="fps", params={"fps": frame_fps, "max_frames": mf})
+        return FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": mf})
+
     if not sufficiency.is_sufficient:
         event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
         logger.info("Transcript insufficient, running visual processing...")
@@ -134,9 +141,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
             )
             if len(segments) > 1:
                 per_seg_max = max(8, max_frames // len(segments))
-                strategy = FrameStrategy(type="scene", params={
-                    "scene_threshold": 0.3, "max_frames": per_seg_max,
-                })
+                strategy = _make_strategy(per_seg_max)
                 logger.info("Brief parallel: %d segments, %d workers",
                             len(segments), seg_cfg.get('max_workers', 4))
 
@@ -161,7 +166,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
                 # Fallback: single segment
                 frames = sample_frames(
                     asset, os.path.join(asset.cache_dir, "frames"),
-                    FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": max_frames})
+                    _make_strategy()
                 )
                 frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
                                         direct_model=direct_model, model_path=model_path,
@@ -170,7 +175,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
             # Original sequential path
             frames = sample_frames(
                 asset, os.path.join(asset.cache_dir, "frames"),
-                FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": max_frames})
+                _make_strategy()
             )
             frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
                                     direct_model=direct_model, model_path=model_path,

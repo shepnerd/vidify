@@ -49,7 +49,7 @@ fi
 
 # ── Parameters ──────────────────────────────────────────────────────────────
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-65536}"
-TP_SIZE="${TP_SIZE:-2}"  # 910C cluster minimum is 2 NPUs
+TP_SIZE="${TP_SIZE:-16}"  # 910C full node = 16 NPUs
 
 # ── Verify NPU availability ────────────────────────────────────────────────
 NPU_COUNT=$(python3 -c "import torch, torch_npu; print(torch.npu.device_count())" 2>/dev/null || echo "0")

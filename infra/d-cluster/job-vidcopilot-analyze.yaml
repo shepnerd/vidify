@@ -1,0 +1,150 @@
+# job-vidcopilot-analyze.yaml — Run VidCopilot detailed analysis on D-cluster
+#
+# One-shot job: starts vLLM on Ascend NPU, runs analysis, then exits.
+
+kind: 'Job'
+apiVersion: 'batch.volcano.sh/v1alpha1'
+metadata:
+  namespace: 'default'
+  labels:
+    lepton.sensetime.com/framework-type: 'PyTorch'
+    ring-controller.atlas: 'ascend-910b'
+  annotations:
+    sp-block: '2'
+spec:
+  schedulerName: 'volcano'
+  minAvailable: 1
+  tasks:
+    - name: 'master'
+      replicas: 1
+      minAvailable: 1
+      template:
+        metadata:
+          labels:
+            ring-controller.atlas: 'ascend-910b'
+        spec:
+          dnsConfig:
+            nameservers:
+              - '10.135.0.138'
+          volumes:
+            - name: 'vc-a3-llmit-data'
+              hostPath:
+                path: '/mnt/hwfile/vc-a3-llmit'
+            - name: 'shm-data'
+              emptyDir:
+                medium: 'Memory'
+                sizeLimit: '64Gi'
+          containers:
+            - name: 'master'
+              image: 'registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1'
+              command:
+                - 'bash'
+                - '-c'
+              args:
+                - |
+                  set -e
+
+                  # ── Ascend environment ──
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh || true
+                  source /usr/local/Ascend/nnal/atb/set_env.sh || true
+                  export LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:${LD_LIBRARY_PATH:-}
+
+                  echo "=== NPU check ==="
+                  python3 -c "import torch, torch_npu; print(f'NPUs: {torch.npu.device_count()}')"
+
+                  # ── Setup vidcopilot ──
+                  cd /workspace
+                  if [ ! -d vidcopilot ]; then
+                    echo "Cloning vidcopilot..."
+                    pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn --no-cache-dir gitpython 2>/dev/null || true
+                    git clone https://github.com/user/vidcopilot.git vidcopilot 2>/dev/null || true
+                  fi
+                  cd /workspace/vidcopilot 2>/dev/null || cd /workspace
+
+                  # ── Start vLLM in background ──
+                  echo "=== Starting vLLM on Ascend NPU ==="
+                  vllm serve Qwen/Qwen3.5-9B \
+                    --host 0.0.0.0 --port 8000 \
+                    --tensor-parallel-size 2 \
+                    --max-model-len 65536 \
+                    --reasoning-parser qwen3 \
+                    --allowed-local-media-path /workspace/vidcopilot/cache \
+                    > /tmp/vllm.log 2>&1 &
+                  VLLM_PID=$!
+
+                  # ── Wait for vLLM to be ready ──
+                  echo "Waiting for vLLM to be ready..."
+                  for i in $(seq 1 120); do
+                    if curl -sf http://localhost:8000/v1/models >/dev/null 2>&1; then
+                      echo "vLLM ready after ${i}0 seconds"
+                      break
+                    fi
+                    if ! kill -0 $VLLM_PID 2>/dev/null; then
+                      echo "ERROR: vLLM died. Last logs:"
+                      tail -30 /tmp/vllm.log
+                      exit 1
+                    fi
+                    sleep 10
+                  done
+
+                  if ! curl -sf http://localhost:8000/v1/models >/dev/null 2>&1; then
+                    echo "ERROR: vLLM not ready after 20 minutes"
+                    tail -50 /tmp/vllm.log
+                    exit 1
+                  fi
+
+                  # ── Run detailed analysis ──
+                  echo "=== Running detailed analysis ==="
+                  python3 agent/main.py analyze youtube \
+                    "https://www.youtube.com/watch?v=SSya123u9Yk" \
+                    --mode detailed \
+                    --cache-root ./cache
+
+                  echo "=== Analysis complete ==="
+                  # Copy results to shared filesystem for retrieval
+                  RESULT_DIR="/data/vidcopilot-results/$(date +%Y%m%d-%H%M%S)"
+                  mkdir -p "$RESULT_DIR"
+                  cp -r ./cache "$RESULT_DIR/" 2>/dev/null || true
+                  echo "Results saved to $RESULT_DIR"
+
+                  # Shutdown vLLM
+                  kill $VLLM_PID 2>/dev/null || true
+                  echo "=== Done ==="
+              resources:
+                limits:
+                  cpu: '128'
+                  huawei.com/Ascend910: '2'
+                  memory: '100Gi'
+                requests:
+                  cpu: '128'
+                  huawei.com/Ascend910: '2'
+                  memory: '100Gi'
+              volumeMounts:
+                - name: 'vc-a3-llmit-data'
+                  mountPath: '/data'
+                - name: 'shm-data'
+                  mountPath: '/dev/shm'
+              imagePullPolicy: 'IfNotPresent'
+          restartPolicy: 'Never'
+          nodeSelector:
+            accelerator-type: 'module-910c-8'
+            host-arch: 'huawei-arm'
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: 'resource.compute.sensecore.cn/machine-type'
+                        operator: 'In'
+                        values:
+                          - 'h2ls.ru.k10'
+      policies:
+        - action: 'RestartJob'
+          event: 'PodEvicted'
+      maxRetry: 3
+  plugins:
+    hcclrank: []
+    svc: []
+  queue: 'default'
+  maxRetry: 1
+  priorityClassName: 'normal'

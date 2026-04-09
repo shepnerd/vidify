@@ -44,7 +44,8 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                 tokenizer_path: str = None,
                 include_web_search: bool = None,
                 google_api_key: str = None, google_search_engine_id: str = None,
-                force_visual: bool = None) -> dict:
+                force_visual: bool = None,
+                frame_strategy: str = None, frame_fps: float = None) -> dict:
     # Load configurations
     models_config = load_models_config()
     workflows_config = load_workflows_config()
@@ -86,10 +87,15 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
         _extract_transcript, asset, meta, whisper_model
     )
 
-    # Submit frame sampling (always needed for OCR/detection in detailed mode)
+    # Build frame strategy from CLI params or defaults
     frames_dir = os.path.join(asset.cache_dir, "frames")
-    frame_strategy = FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
-    frames_future = executor.submit(sample_frames, asset, frames_dir, frame_strategy)
+    if frame_strategy == "fps" and frame_fps is not None:
+        _frame_strat = FrameStrategy(type="fps", params={"fps": frame_fps, "max_frames": max_frames})
+    else:
+        _frame_strat = FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+
+    # Submit frame sampling (always needed for OCR/detection in detailed mode)
+    frames_future = executor.submit(sample_frames, asset, frames_dir, _frame_strat)
 
     # Collect results
     transcript, audio_path = transcript_future.result()
