@@ -571,6 +571,84 @@ Falls back to built-in defaults if files don't exist. CLI/API parameters always 
 
 See [Configuration Guide](docs/configuration.md).
 
+## Ascend 910C / D-Cluster Deployment
+
+VidCopilot can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform) using vLLM with the `vllm_ascend` backend.
+
+### Prerequisites
+
+- Access to D-cluster with `vcctl`/`kubectl` configured (see `../workbench/infra/d-cluster/setup.sh`)
+- Image: `registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1` (pre-built with all vidcopilot deps)
+
+### Quick Start
+
+```bash
+# 1. Submit a job (2 NPUs, shared filesystem, interactive)
+job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+
+# 2. Exec into the pod
+pod-exec vidcopilot
+
+# 3. Inside the pod: clone/update code, start vLLM on NPU
+cd /workspace/vidcopilot
+bash scripts/serving_qwen3_5_ascend.sh &
+
+# 4. Start the API server
+uvicorn server.app:app --host 0.0.0.0 --port 9000
+
+# 5. Run tests (from another terminal or using --api-base)
+python scripts/test_all.py --video-path /data/videos/test.mp4 --api-base http://localhost:8000/v1
+```
+
+### One-Command Test (launches job, starts vLLM, runs tests, cleans up)
+
+```bash
+bash scripts/run_test_ascend.sh --video media/taste_in_china_s1e1.mp4
+bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1   # reuse existing endpoint
+bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
+```
+
+### NPU Serving Script
+
+```bash
+# Default: 2 NPUs, auto-detect model from /data or HuggingFace
+bash scripts/serving_qwen3_5_ascend.sh
+
+# Custom model path and TP size
+TP_SIZE=4 bash scripts/serving_qwen3_5_ascend.sh /data/models/Qwen3.5-9B
+```
+
+### Key Differences from GPU
+
+| Setting | GPU | NPU (Ascend 910C) |
+|---------|-----|--------------------|
+| Image | `python:3.11-slim` | `ccr-a3-llmit/testenv:v0.1` (openEuler + CANN) |
+| vLLM backend | CUDA | `vllm_ascend` (auto-detected) |
+| Min devices | 1 GPU | 2 NPUs (cluster policy) |
+| Package manager | apt | yum/dnf |
+| Architecture | x86_64 | aarch64 (ARM) |
+| torch_compile | Supported | Not supported |
+
+### Rebuilding the Image
+
+Docker build won't work (no network during build). Use the commit-from-pod approach:
+
+```bash
+# 1. Start a build job
+job-run img-build -g 2 --no-mount
+
+# 2. Install packages inside the pod
+pod-exec img-build
+pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
+  --trusted-host pkg.pjlab.org.cn --no-cache-dir <packages>
+
+# 3. Commit as new image (must use ccr-a3-llmit or ccr-ailab-public namespace)
+commit-image img-build-master-0 ccr-a3-llmit/testenv:v0.2
+
+# 4. Clean up
+job-delete img-build -y
+```
+
 ## Docker
 
 ```bash

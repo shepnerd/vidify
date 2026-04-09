@@ -5,13 +5,14 @@ from agent.core.orchestrator import run
 from agent.config import load_config, get_default_config
 from agent.core.events import event_bus, EventType
 from agent.core.logging_config import setup_logging
+from agent.core.cli_progress import CLIProgressDisplay
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
 
-def _cli_event_handler(event):
-    """Print real-time progress events to stderr for CLI users."""
+def _plain_event_handler(event):
+    """Fallback plain-text handler for non-TTY or JSON log mode."""
     icon = {
         EventType.SKILL_START: ">>>",
         EventType.SKILL_COMPLETE: "[ok]",
@@ -32,6 +33,7 @@ def _cli_event_handler(event):
 def cli(ctx, config, log_format):
     ctx.ensure_object(dict)
     ctx.obj['config'] = {**get_default_config(), **load_config(config)}
+    ctx.obj['log_format'] = log_format
     setup_logging(log_format=log_format)
 
 @cli.command()
@@ -65,12 +67,21 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, strea
         cfg['uri'] = click.prompt('Video URI', default=cfg['uri'])
         cfg['mode'] = click.prompt('Mode', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']), default=cfg['mode'])
 
-    # Subscribe to pipeline events for real-time CLI progress
-    event_bus.subscribe(None, _cli_event_handler)
+    # Choose display mode: rich progress for TTY, plain text for JSON/pipe
+    use_rich = (ctx.obj.get('log_format', 'text') != 'json'
+                and sys.stderr.isatty())
 
-    click.echo(f"Analyzing {uri} (mode={mode})...", err=True)
-    asset = load_video(source_type, uri, cache_root)
-    result = run(asset, mode, cfg)
+    if use_rich:
+        click.echo(f"Analyzing {uri} (mode={mode})...", err=True)
+        with CLIProgressDisplay(event_bus):
+            asset = load_video(source_type, uri, cache_root)
+            result = run(asset, mode, cfg)
+    else:
+        event_bus.subscribe(None, _plain_event_handler)
+        click.echo(f"Analyzing {uri} (mode={mode})...", err=True)
+        asset = load_video(source_type, uri, cache_root)
+        result = run(asset, mode, cfg)
+
     click.echo(result)
 
 if __name__ == "__main__":

@@ -48,6 +48,25 @@ bash scripts/serving_qwen3vl.sh       # Qwen3-VL (legacy) — launches vLLM on p
 docker-compose up                      # Starts app (9000) + vLLM (8000)
 ```
 
+### Ascend 910C / D-Cluster
+```bash
+# Submit vidcopilot job (2 NPUs, interactive)
+job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+
+# Inside pod: start vLLM on NPU
+bash scripts/serving_qwen3_5_ascend.sh
+
+# One-command test on D-cluster (launches job, runs tests, cleans up)
+bash scripts/run_test_ascend.sh --video media/video.mp4
+bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1
+```
+
+**Image**: `registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1` — openEuler 24.03 aarch64, PyTorch 2.8 + torch_npu + CANN + vLLM 0.13.0 + vllm_ascend + all vidcopilot deps. **Do NOT reinstall** torch, torch_npu, transformers, or vllm inside this image.
+
+**Infra scripts** (vcctl, kubectl wrappers) live in `../workbench/infra/d-cluster/`. Run `setup.sh` there for first-time setup.
+
+**Cluster PyPI proxy**: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
+
 ## Architecture
 
 ### Data flow

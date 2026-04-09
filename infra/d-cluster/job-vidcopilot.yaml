@@ -1,0 +1,117 @@
+# job-vidcopilot.yaml — VidCopilot inference job on D-cluster (Ascend 910C)
+#
+# Usage:
+#   job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+#
+# Then exec into the pod and start services:
+#   pod-exec vidcopilot
+#   bash scripts/serving_qwen3_5_ascend.sh &    # start vLLM on NPU
+#   uvicorn server.app:app --host 0.0.0.0 --port 9000  # start vidcopilot API
+#
+# Customize:
+#   - huawei.com/Ascend910: NPU count (2,4,6,8,10,12,14,16)
+#   - sp-block: must equal total NPUs (npus × replicas)
+#   - image: update if you rebuild the image
+
+kind: 'Job'
+apiVersion: 'batch.volcano.sh/v1alpha1'
+metadata:
+  namespace: 'default'
+  labels:
+    lepton.sensetime.com/framework-type: 'PyTorch'
+    ring-controller.atlas: 'ascend-910b'
+  annotations:
+    sp-block: '2'
+spec:
+  schedulerName: 'volcano'
+  minAvailable: 1
+  tasks:
+    - name: 'master'
+      replicas: 1
+      minAvailable: 1
+      template:
+        metadata:
+          labels:
+            ring-controller.atlas: 'ascend-910b'
+        spec:
+          dnsConfig:
+            nameservers:
+              - '10.135.0.138'  # xsky S3 DNS (required for pip proxy / object storage)
+          volumes:
+            - name: 'vc-a3-llmit-data'
+              hostPath:
+                path: '/mnt/hwfile/vc-a3-llmit'
+            - name: 'shm-data'
+              emptyDir:
+                medium: 'Memory'
+                sizeLimit: '64Gi'
+          containers:
+            - name: 'master'
+              image: 'registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1'
+              command:
+                - 'bash'
+                - '-c'
+              args:
+                - |
+                  set -e
+
+                  # ── Ascend environment ──
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh || true
+                  source /usr/local/Ascend/nnal/atb/set_env.sh || true
+                  export LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:${LD_LIBRARY_PATH:-}
+
+                  # ── Clone or update vidcopilot ──
+                  if [ -d /workspace/vidcopilot ]; then
+                    cd /workspace/vidcopilot && git pull || true
+                  else
+                    cd /workspace
+                    git clone https://github.com/user/vidcopilot.git vidcopilot 2>/dev/null || true
+                  fi
+
+                  echo "=== VidCopilot pod ready ==="
+                  echo "NPU devices: $(python -c 'import torch, torch_npu; print(torch.npu.device_count())' 2>/dev/null || echo 'N/A')"
+                  echo ""
+                  echo "Quick start:"
+                  echo "  cd /workspace/vidcopilot"
+                  echo "  bash scripts/serving_qwen3_5_ascend.sh &"
+                  echo "  uvicorn server.app:app --host 0.0.0.0 --port 9000"
+
+                  sleep inf
+              resources:
+                limits:
+                  cpu: '128'
+                  huawei.com/Ascend910: '2'
+                  memory: '100Gi'
+                requests:
+                  cpu: '128'
+                  huawei.com/Ascend910: '2'
+                  memory: '100Gi'
+              volumeMounts:
+                - name: 'vc-a3-llmit-data'
+                  mountPath: '/data'
+                - name: 'shm-data'
+                  mountPath: '/dev/shm'
+              imagePullPolicy: 'IfNotPresent'
+          restartPolicy: 'Never'
+          nodeSelector:
+            accelerator-type: 'module-910c-8'
+            host-arch: 'huawei-arm'
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: 'resource.compute.sensecore.cn/machine-type'
+                        operator: 'In'
+                        values:
+                          - 'h2ls.ru.k10'
+      policies:
+        - action: 'RestartJob'
+          event: 'PodEvicted'
+      maxRetry: 3
+  plugins:
+    hcclrank: []              # HCCL rank auto-assignment (required for Ascend NPU)
+    svc: []                   # headless service (required for multi-node DNS resolution)
+  queue: 'default'
+  maxRetry: 1
+  priorityClassName: 'normal'
