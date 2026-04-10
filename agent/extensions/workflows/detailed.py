@@ -36,9 +36,11 @@ from agent.core.segment_worker import process_segment
 
 logger = logging.getLogger(__name__)
 
+_UNSET = object()  # sentinel to distinguish "not provided" from explicit None
+
 def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                 max_frames: int = None,
-                whisper_model: str = None,
+                whisper_model: str = _UNSET,
                 direct_model: bool = None,
                 model_path: str = None,
                 tokenizer_path: str = None,
@@ -58,7 +60,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
         llm_model = models_config.get('mllm', {}).get('heavy', {}).get('model_name', 'qwen-vl-7b')
     if max_frames is None:
         max_frames = wf_cfg.get('max_frames', 128)
-    if whisper_model is None:
+    if whisper_model is _UNSET:
         whisper_model = models_config.get('asr', {}).get('size', 'small')
     if direct_model is None:
         direct_model = False

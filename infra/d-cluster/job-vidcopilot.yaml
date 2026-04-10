@@ -5,8 +5,13 @@
 #
 # Then exec into the pod and start services:
 #   pod-exec vidcopilot
-#   bash scripts/serving_qwen3_5_ascend.sh &    # start vLLM on NPU
+#   bash scripts/serving_qwen2_5vl_ascend.sh &   # start vLLM on NPU (Qwen2.5-VL, TP=4)
 #   uvicorn server.app:app --host 0.0.0.0 --port 9000  # start vidcopilot API
+#
+# Model notes:
+#   - Qwen3.5-9B does NOT work (head_dim=256 unsupported by NPU attention kernel)
+#   - Use Qwen2.5-VL-7B-Instruct (head_dim=128, works with TP=4)
+#   - Download via: HF_ENDPOINT=https://hf-mirror.com python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct', local_dir='/data/models/Qwen2.5-VL-7B-Instruct')"
 #
 # Customize:
 #   - huawei.com/Ascend910: NPU count (2,4,6,8,10,12,14,16)
@@ -47,7 +52,7 @@ spec:
                 sizeLimit: '64Gi'
           containers:
             - name: 'master'
-              image: 'registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1'
+              image: 'registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409'
               command:
                 - 'bash'
                 - '-c'
@@ -73,8 +78,11 @@ spec:
                   echo ""
                   echo "Quick start:"
                   echo "  cd /workspace/vidcopilot"
-                  echo "  bash scripts/serving_qwen3_5_ascend.sh &"
+                  echo "  bash scripts/serving_qwen2_5vl_ascend.sh &"
                   echo "  uvicorn server.app:app --host 0.0.0.0 --port 9000"
+                  echo ""
+                  echo "Download model (if not cached on /data):"
+                  echo "  HF_ENDPOINT=https://hf-mirror.com python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct', local_dir='/data/models/Qwen2.5-VL-7B-Instruct')\""
 
                   sleep inf
               resources:

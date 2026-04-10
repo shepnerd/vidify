@@ -520,8 +520,10 @@ scripts/                 # Test and demo scripts
   run_test_gpu.sh          # One-command: launch vLLM on cluster + run full test suite
   test_all.py              # 17-skill test suite for local videos
   test_youtube_e2e.py      # YouTube E2E test
-  serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B
+  serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B (GPU)
   serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
+  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend 910C NPU
+  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5 on Ascend (BROKEN — head_dim=256 unsupported)
   rl.sh                    # GPU cluster job launcher (rlaunch wrapper)
 docs/                    # Detailed documentation
 .env                     # Cluster config: quota group, GPFS mounts, CUDA_HOME (gitignored)
@@ -578,26 +580,37 @@ VidCopilot can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform
 ### Prerequisites
 
 - Access to D-cluster with `vcctl`/`kubectl` configured (see `../workbench/infra/d-cluster/setup.sh`)
-- Image: `registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1` (pre-built with all vidcopilot deps)
+- Image: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` (vLLM 0.18, A3-specific build)
+
+### Model Compatibility
+
+**Qwen3.5-9B does NOT work on Ascend 910C** — its `head_dim=256` is unsupported by the NPU fused attention kernel (`npu_fused_infer_attention_score` only supports 64/128/192). Use **Qwen2.5-VL-7B-Instruct** (`head_dim=128`) instead.
+
+TP (tensor-parallel) size must evenly divide the model's `num_attention_heads`. For Qwen2.5-VL-7B (28 heads), valid TP sizes are: 1, 2, 4, 7, 14.
 
 ### Quick Start
 
 ```bash
-# 1. Submit a job (2 NPUs, shared filesystem, interactive)
+# 1. Submit a job (16 NPUs = full node, shared filesystem, interactive)
 job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
 
 # 2. Exec into the pod
 pod-exec vidcopilot
 
-# 3. Inside the pod: clone/update code, start vLLM on NPU
-cd /workspace/vidcopilot
-bash scripts/serving_qwen3_5_ascend.sh &
+# 3. Inside the pod: download model via hf-mirror (cluster has no public internet)
+HF_ENDPOINT=https://hf-mirror.com python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct', local_dir='/data/models/Qwen2.5-VL-7B-Instruct')
+"
 
-# 4. Start the API server
+# 4. Start vLLM on NPU (Qwen2.5-VL, TP=4, enforce-eager)
+bash scripts/serving_qwen2_5vl_ascend.sh &
+
+# 5. Start the API server
 uvicorn server.app:app --host 0.0.0.0 --port 9000
 
-# 5. Run tests (from another terminal or using --api-base)
-python scripts/test_all.py --video-path /data/videos/test.mp4 --api-base http://localhost:8000/v1
+# 6. Run analysis (use --force-visual since ASR models can't be downloaded on cluster)
+python agent/main.py analyze local /path/to/video.mp4 --mode detailed --force-visual
 ```
 
 ### One-Command Test (launches job, starts vLLM, runs tests, cleans up)
@@ -611,23 +624,34 @@ bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
 ### NPU Serving Script
 
 ```bash
-# Default: 2 NPUs, auto-detect model from /data or HuggingFace
-bash scripts/serving_qwen3_5_ascend.sh
+# Default: TP=4, auto-detect model from /data/models or download via hf-mirror
+bash scripts/serving_qwen2_5vl_ascend.sh
 
 # Custom model path and TP size
-TP_SIZE=4 bash scripts/serving_qwen3_5_ascend.sh /data/models/Qwen3.5-9B
+TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /data/models/Qwen2.5-VL-7B-Instruct
 ```
 
 ### Key Differences from GPU
 
 | Setting | GPU | NPU (Ascend 910C) |
 |---------|-----|--------------------|
-| Image | `python:3.11-slim` | `ccr-a3-llmit/testenv:v0.1` (openEuler + CANN) |
-| vLLM backend | CUDA | `vllm_ascend` (auto-detected) |
+| Image | `python:3.11-slim` | `ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` |
+| Model | Qwen3.5-9B (recommended) | Qwen2.5-VL-7B-Instruct (Qwen3.5 head_dim=256 unsupported) |
+| vLLM backend | CUDA | `vllm_ascend` (auto-detected, A3-specific build required) |
+| vLLM flags | (default) | `--enforce-eager --max-model-len 16384` (NPU graph capture OOM) |
 | Min devices | 1 GPU | 2 NPUs (cluster policy) |
+| Network | Public internet | No internet; use `HF_ENDPOINT=https://hf-mirror.com` for downloads |
 | Package manager | apt | yum/dnf |
 | Architecture | x86_64 | aarch64 (ARM) |
 | torch_compile | Supported | Not supported |
+
+### Network Constraints
+
+D-cluster nodes **cannot reach the public internet**. For model/package downloads:
+
+- **HuggingFace models**: Set `HF_ENDPOINT=https://hf-mirror.com` before downloading
+- **PyPI packages**: Use internal proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
+- **Whisper/wav2vec2 models**: Must be pre-downloaded on a node with internet access and copied to the pod, or use `whisper_model: null` in `config.yaml` to skip ASR
 
 ### Rebuilding the Image
 
@@ -642,8 +666,8 @@ pod-exec img-build
 pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
   --trusted-host pkg.pjlab.org.cn --no-cache-dir <packages>
 
-# 3. Commit as new image (must use ccr-a3-llmit or ccr-ailab-public namespace)
-commit-image img-build-master-0 ccr-a3-llmit/testenv:v0.2
+# 3. Commit as new image (use ccr-hw/910c namespace for A3 images)
+commit-image img-build-master-0 ccr-hw/910c:my-tag
 
 # 4. Clean up
 job-delete img-build -y

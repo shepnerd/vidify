@@ -18,6 +18,8 @@ from agent.core.events import event_bus, EventType
 from agent.core.parallel import run_segments_parallel
 from agent.core.segment import split_video_into_segments, merge_framesets
 
+_UNSET = object()  # sentinel to distinguish "not provided" from explicit None
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,7 @@ def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
 def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames: int = None,
              direct_model: bool = None, model_path: str = None, tokenizer_path: str = None,
              include_web_search: bool = None, google_api_key: str = None, google_search_engine_id: str = None,
-             whisper_model: str = None, force_visual: bool = None,
+             whisper_model: str = _UNSET, force_visual: bool = None,
              frame_strategy: str = None, frame_fps: float = None) -> dict:
     # Load configurations
     models_config = load_models_config()
@@ -60,7 +62,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
         llm_model = models_config.get('mllm', {}).get('heavy', {}).get('model_name', 'qwen-vl-7b')
     if max_frames is None:
         max_frames = wf_cfg.get('max_frames', 64)
-    if whisper_model is None:
+    if whisper_model is _UNSET:
         whisper_model = models_config.get('asr', {}).get('size', 'small')
     if direct_model is None:
         direct_model = False

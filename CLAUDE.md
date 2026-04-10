@@ -50,22 +50,26 @@ docker-compose up                      # Starts app (9000) + vLLM (8000)
 
 ### Ascend 910C / D-Cluster
 ```bash
-# Submit vidcopilot job (2 NPUs, interactive)
+# Submit vidcopilot job (16 NPUs = full node, interactive)
 job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
 
-# Inside pod: start vLLM on NPU
-bash scripts/serving_qwen3_5_ascend.sh
+# Inside pod: start vLLM on NPU (Qwen2.5-VL-7B, TP=4)
+bash scripts/serving_qwen2_5vl_ascend.sh
 
 # One-command test on D-cluster (launches job, runs tests, cleans up)
 bash scripts/run_test_ascend.sh --video media/video.mp4
 bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1
 ```
 
-**Image**: `registry2.d.pjlab.org.cn/ccr-a3-llmit/testenv:v0.1` — openEuler 24.03 aarch64, PyTorch 2.8 + torch_npu + CANN + vLLM 0.13.0 + vllm_ascend + all vidcopilot deps. **Do NOT reinstall** torch, torch_npu, transformers, or vllm inside this image.
+**Image**: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` — openEuler 24.03 aarch64, PyTorch 2.9 + torch_npu 2.9 + CANN + vLLM 0.18 + vllm_ascend (A3-specific build). Upgrade transformers to >=5.5 inside the pod if using Qwen3.5 model type. **Do NOT reinstall** torch, torch_npu, or vllm inside this image.
+
+**Model compatibility**: Qwen3.5-9B does NOT work on Ascend 910C — its head_dim=256 is unsupported by the NPU fused attention kernel (only 64/128/192). Use **Qwen2.5-VL-7B-Instruct** (head_dim=128) instead. TP size must divide num_attention_heads (28 for Qwen2.5-VL → use TP=2, 4, 7, or 14).
+
+**NPU memory**: Use `--enforce-eager` (NPU graph capture causes OOM) and `--max-model-len 16384` (65536 causes OOM).
+
+**Network**: Cluster nodes cannot reach the public internet. Use `HF_ENDPOINT=https://hf-mirror.com` for model downloads. PyPI proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
 
 **Infra scripts** (vcctl, kubectl wrappers) live in `../workbench/infra/d-cluster/`. Run `setup.sh` there for first-time setup.
-
-**Cluster PyPI proxy**: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
 
 ## Architecture
 

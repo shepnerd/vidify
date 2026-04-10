@@ -29,7 +29,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
             result = wf_analyze(asset, mode,
                               llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                               max_frames=cfg.get("max_frames", 128),
-                              whisper_model=cfg.get("whisper_model", "small"),
+                              whisper_model=cfg.get("whisper_model"),
                               direct_model=cfg.get("direct_model", False),
                               model_path=cfg.get("model_path"),
                               tokenizer_path=cfg.get("tokenizer_path"),

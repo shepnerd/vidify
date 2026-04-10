@@ -2,7 +2,7 @@
 import os
 from agent.core.schemas import VideoAsset, VideoSource
 from agent.extensions.utils.cache import sha1, ensure_dir
-from agent.skills.video_download import download_youtube, download_generic
+from agent.extensions.skills.video_download import download_youtube, download_generic
 
 def load_video(source_type: str, uri: str, cache_root: str) -> VideoAsset:
     vid = sha1(f"{source_type}:{uri}")
