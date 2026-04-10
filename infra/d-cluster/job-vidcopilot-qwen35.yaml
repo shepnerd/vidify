@@ -1,0 +1,146 @@
+# job-vidcopilot-qwen35.yaml — VidCopilot + Qwen3.5-9B on D-cluster (Ascend 910C, vLLM 0.18)
+#
+# Uses a full node (16 NPUs) with vLLM serving Qwen3.5-9B (TP=4).
+# Qwen3.5's hybrid GDN+Attention architecture runs on Ascend via vllm_ascend >= 0.17
+# with --enforce-eager (graph mode unsupported for head_dim=256).
+#
+# Usage:
+#   job-run vidcopilot-qwen35 -f ./infra/d-cluster/job-vidcopilot-qwen35.yaml
+#
+# Then exec into the pod:
+#   pod-exec vidcopilot-qwen35
+#   bash scripts/start_vidcopilot_ascend.sh          # one-command start
+#   # or manually:
+#   bash scripts/serving_qwen3_5_ascend.sh &          # start vLLM (TP=4)
+#   python agent/main.py chat local <video> --cache-root ./cache  # interactive chat
+#
+# Model download (run inside pod, uses hf-mirror since cluster has no internet):
+#   HF_ENDPOINT=https://hf-mirror.com python3 -c \
+#     "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.5-9B', local_dir='/data/models/Qwen3.5-9B')"
+
+kind: 'Job'
+apiVersion: 'batch.volcano.sh/v1alpha1'
+metadata:
+  name: 'vidcopilot-qwen35'
+  namespace: 'default'
+  labels:
+    lepton.sensetime.com/framework-type: 'PyTorch'
+    ring-controller.atlas: 'ascend-910b'
+  annotations:
+    sp-block: '16'
+spec:
+  schedulerName: 'volcano'
+  minAvailable: 1
+  tasks:
+    - name: 'master'
+      replicas: 1
+      minAvailable: 1
+      template:
+        metadata:
+          labels:
+            ring-controller.atlas: 'ascend-910b'
+        spec:
+          dnsConfig:
+            nameservers:
+              - '10.135.0.138'
+          volumes:
+            - name: 'vc-a3-llmit-data'
+              hostPath:
+                path: '/mnt/hwfile/vc-a3-llmit'
+            - name: 'shm-data'
+              emptyDir:
+                medium: 'Memory'
+                sizeLimit: '64Gi'
+          containers:
+            - name: 'master'
+              image: 'registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409'
+              command:
+                - 'bash'
+                - '-c'
+              args:
+                - |
+                  set -e
+
+                  # ── Ascend environment ──
+                  # Note: set_env.sh references ZSH_VERSION which is unbound, so source without -u
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh 2>/dev/null || true
+                  bash -c 'source /usr/local/Ascend/nnal/atb/set_env.sh 2>/dev/null' || true
+                  export LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:${LD_LIBRARY_PATH:-}
+
+                  # ── Clone or update vidcopilot ──
+                  if [ -d /workspace/vidcopilot ]; then
+                    cd /workspace/vidcopilot && git pull || true
+                  else
+                    cd /workspace
+                    git clone https://github.com/user/vidcopilot.git vidcopilot 2>/dev/null || true
+                  fi
+
+                  # ── Install deps (DO NOT install torch/vllm/numpy — pre-installed in image) ──
+                  pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
+                    --trusted-host pkg.pjlab.org.cn --no-cache-dir \
+                    rich click openai pydantic PyYAML requests faster-whisper faiss-cpu \
+                    beautifulsoup4 yt-dlp jinja2 aiofiles ffmpeg-python uvicorn fastapi 2>/dev/null || true
+
+                  # ── Install ffmpeg (needed for video processing) ──
+                  which ffprobe >/dev/null 2>&1 || yum install -y ffmpeg 2>/dev/null || true
+
+                  # ── Upgrade transformers for Qwen3.5 ──
+                  pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
+                    --trusted-host pkg.pjlab.org.cn --no-cache-dir \
+                    "transformers>=4.51" 2>/dev/null || true
+
+                  echo "=== VidCopilot pod ready (Qwen3.5 + vLLM 0.18) ==="
+                  echo "NPU devices: $(python3 -c 'import torch, torch_npu; print(torch.npu.device_count())' 2>/dev/null || echo 'N/A')"
+                  echo ""
+                  echo "Quick start:"
+                  echo "  cd /workspace/vidcopilot"
+                  echo "  bash scripts/start_vidcopilot_ascend.sh"
+                  echo ""
+                  echo "Or manually:"
+                  echo "  bash scripts/serving_qwen3_5_ascend.sh &"
+                  echo "  python agent/main.py chat local <video> --cache-root ./cache"
+                  echo ""
+                  echo "Download model (if not cached on /data):"
+                  echo "  HF_ENDPOINT=https://hf-mirror.com python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.5-9B', local_dir='/data/models/Qwen3.5-9B')\""
+
+                  sleep inf
+              resources:
+                limits:
+                  cpu: '128'
+                  huawei.com/Ascend910: '16'
+                  memory: '800Gi'
+                requests:
+                  cpu: '128'
+                  huawei.com/Ascend910: '16'
+                  memory: '800Gi'
+              volumeMounts:
+                - name: 'vc-a3-llmit-data'
+                  mountPath: '/data'
+                - name: 'shm-data'
+                  mountPath: '/dev/shm'
+              imagePullPolicy: 'IfNotPresent'
+          imagePullSecrets:
+            - name: ccr-pull-secret
+          restartPolicy: 'Never'
+          nodeSelector:
+            accelerator-type: 'module-910c-8'
+            host-arch: 'huawei-arm'
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: 'resource.compute.sensecore.cn/machine-type'
+                        operator: 'In'
+                        values:
+                          - 'h2ls.ru.k10'
+      policies:
+        - action: 'RestartJob'
+          event: 'PodEvicted'
+      maxRetry: 3
+  plugins:
+    hcclrank: []
+    svc: []
+  queue: 'default'
+  maxRetry: 1
+  priorityClassName: 'normal'

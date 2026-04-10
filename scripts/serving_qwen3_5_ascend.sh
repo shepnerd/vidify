@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Serve Qwen3.5-9B on Ascend 910C NPU via vLLM + vllm_ascend.
+# Serve Qwen3.5-9B on Ascend 910C NPU via vLLM 0.18 + vllm_ascend.
+#
+# Qwen3.5-9B uses a hybrid GDN+Attention architecture:
+#   - 3/4 layers: Gated DeltaNet (linear attention, uses fused_recurrent_gated_delta_rule)
+#   - 1/4 layers: Standard attention (head_dim=256, requires --enforce-eager on NPU)
+#   - num_attention_heads=16, num_kv_heads=4 → valid TP: 1, 2, 4
+#
+# Image: registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409
 #
 # Prerequisites:
 #   - Ascend 910C node with CANN toolkit installed
-#   - vLLM >= 0.13.0 with vllm_ascend plugin (pre-installed in testenv:v0.1)
+#   - vLLM >= 0.18.0 with vllm_ascend plugin
 #   - torch_npu matching the CANN/PyTorch versions
+#   - transformers >= 4.51 (for Qwen3.5 model type support)
 #
 # Usage (inside a D-cluster pod):
 #   bash scripts/serving_qwen3_5_ascend.sh                          # auto-detect model
@@ -14,12 +22,15 @@
 set -euo pipefail
 
 # ── Ascend environment ──────────────────────────────────────────────────────
+# Temporarily disable nounset — Ascend set_env.sh references ZSH_VERSION which is unbound
+set +u
 if [[ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ]]; then
     source /usr/local/Ascend/ascend-toolkit/set_env.sh || true
 fi
 if [[ -f /usr/local/Ascend/nnal/atb/set_env.sh ]]; then
     source /usr/local/Ascend/nnal/atb/set_env.sh || true
 fi
+set -u
 export LD_LIBRARY_PATH="/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver:${LD_LIBRARY_PATH:-}"
 
 # ── Model path ──────────────────────────────────────────────────────────────
@@ -48,8 +59,9 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 # ── Parameters ──────────────────────────────────────────────────────────────
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-65536}"
-TP_SIZE="${TP_SIZE:-16}"  # 910C full node = 16 NPUs
+# Qwen3.5-9B: num_attention_heads=16, num_kv_heads=4 → TP must divide both → max TP=4
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+TP_SIZE="${TP_SIZE:-4}"
 
 # ── Verify NPU availability ────────────────────────────────────────────────
 NPU_COUNT=$(python3 -c "import torch, torch_npu; print(torch.npu.device_count())" 2>/dev/null || echo "0")
@@ -64,6 +76,12 @@ if [[ "$TP_SIZE" -gt "$NPU_COUNT" ]]; then
     TP_SIZE="$NPU_COUNT"
 fi
 
+# Validate TP divides num_attention_heads (16) and num_kv_heads (4)
+if (( 16 % TP_SIZE != 0 )) || (( 4 % TP_SIZE != 0 )); then
+    echo "ERROR: TP_SIZE=${TP_SIZE} must divide both num_attention_heads=16 and num_kv_heads=4. Use 1, 2, or 4." >&2
+    exit 1
+fi
+
 # ── Launch ──────────────────────────────────────────────────────────────────
 echo "Starting vLLM on Ascend NPU ..."
 echo "  Model:       $MODEL"
@@ -71,11 +89,14 @@ echo "  Context len: $MAX_MODEL_LEN"
 echo "  TP size:     $TP_SIZE"
 echo "  NPUs:        $NPU_COUNT"
 echo "  Port:        8000"
+echo "  Flags:       --enforce-eager (NPU graph capture unsupported for head_dim=256)"
 
 exec vllm serve "$MODEL" \
     --host 0.0.0.0 \
     --port 8000 \
     --tensor-parallel-size "$TP_SIZE" \
     --max-model-len "$MAX_MODEL_LEN" \
+    --enforce-eager \
+    --trust-remote-code \
     --reasoning-parser qwen3 \
     --allowed-local-media-path "$(pwd)/cache"

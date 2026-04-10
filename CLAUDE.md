@@ -50,22 +50,35 @@ docker-compose up                      # Starts app (9000) + vLLM (8000)
 
 ### Ascend 910C / D-Cluster
 ```bash
-# Submit vidcopilot job (16 NPUs = full node, interactive)
+# Submit vidcopilot job — Qwen3.5-9B with vLLM 0.18 (16 NPUs = full node, interactive)
+job-run vidcopilot-qwen35 -f ./infra/d-cluster/job-vidcopilot-qwen35.yaml
+
+# Inside pod: one-command start (downloads model, starts vLLM, launches chat)
+bash scripts/start_vidcopilot_ascend.sh /data/videos/myvideo.mp4
+
+# Or start step by step:
+bash scripts/serving_qwen3_5_ascend.sh &         # vLLM on NPU (Qwen3.5-9B, TP=4)
+python agent/main.py chat local <video> --cache-root ./cache
+
+# Legacy: Qwen2.5-VL-7B (for older images / fallback)
 job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+bash scripts/serving_qwen2_5vl_ascend.sh &
 
-# Inside pod: start vLLM on NPU (Qwen2.5-VL-7B, TP=4)
-bash scripts/serving_qwen2_5vl_ascend.sh
-
-# One-command test on D-cluster (launches job, runs tests, cleans up)
+# One-command test on D-cluster
 bash scripts/run_test_ascend.sh --video media/video.mp4
 bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1
 ```
 
-**Image**: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` — openEuler 24.03 aarch64, PyTorch 2.9 + torch_npu 2.9 + CANN + vLLM 0.18 + vllm_ascend (A3-specific build). Upgrade transformers to >=5.5 inside the pod if using Qwen3.5 model type. **Do NOT reinstall** torch, torch_npu, or vllm inside this image.
+**Images**:
+- `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` — vLLM 0.18.0 + vllm_ascend, openEuler 24.03 aarch64, PyTorch 2.9 + torch_npu 2.9 + CANN 8.5 + transformers 4.57. Supports both Qwen3.5-9B and Qwen2.5-VL-7B.
 
-**Model compatibility**: Qwen3.5-9B does NOT work on Ascend 910C — its head_dim=256 is unsupported by the NPU fused attention kernel (only 64/128/192). Use **Qwen2.5-VL-7B-Instruct** (head_dim=128) instead. TP size must divide num_attention_heads (28 for Qwen2.5-VL → use TP=2, 4, 7, or 14).
+Upgrade transformers to >=4.51 inside the pod if using Qwen3.5 model type (already >=4.51 in current image). **Do NOT reinstall** torch, torch_npu, or vllm inside this image — pip will pull CPU-only versions that break NPU support.
 
-**NPU memory**: Use `--enforce-eager` (NPU graph capture causes OOM) and `--max-model-len 16384` (65536 causes OOM).
+**Model compatibility**:
+- **Qwen3.5-9B** (recommended): Hybrid GDN+Attention, head_dim=256. Works with vllm_ascend >= 0.17 using `--enforce-eager`. num_attention_heads=16, num_kv_heads=4 → TP must be 1, 2, or 4.
+- **Qwen2.5-VL-7B-Instruct** (fallback): head_dim=128, native NPU support. TP must divide 28 (use 2, 4, 7, or 14).
+
+**NPU memory**: Use `--enforce-eager` (required for Qwen3.5 head_dim=256 and to avoid NPU graph capture OOM) and `--max-model-len 16384` (65536 causes OOM).
 
 **Network**: Cluster nodes cannot reach the public internet. Use `HF_ENDPOINT=https://hf-mirror.com` for model downloads. PyPI proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
 

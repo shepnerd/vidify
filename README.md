@@ -522,8 +522,9 @@ scripts/                 # Test and demo scripts
   test_youtube_e2e.py      # YouTube E2E test
   serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B (GPU)
   serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
-  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend 910C NPU
-  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5 on Ascend (BROKEN — head_dim=256 unsupported)
+  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend 910C NPU (fallback)
+  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5-9B on Ascend 910C (vLLM 0.18+)
+  start_vidcopilot_ascend.sh  # One-command: start vLLM + vidcopilot chat on Ascend
   rl.sh                    # GPU cluster job launcher (rlaunch wrapper)
 docs/                    # Detailed documentation
 .env                     # Cluster config: quota group, GPFS mounts, CUDA_HOME (gitignored)
@@ -580,37 +581,45 @@ VidCopilot can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform
 ### Prerequisites
 
 - Access to D-cluster with `vcctl`/`kubectl` configured (see `../workbench/infra/d-cluster/setup.sh`)
-- Image: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` (vLLM 0.18, A3-specific build)
+- Image: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` (vLLM 0.18, supports Qwen3.5-9B + Qwen2.5-VL)
+- Legacy image: same (only one image available, supports both models)
 
 ### Model Compatibility
 
-**Qwen3.5-9B does NOT work on Ascend 910C** — its `head_dim=256` is unsupported by the NPU fused attention kernel (`npu_fused_infer_attention_score` only supports 64/128/192). Use **Qwen2.5-VL-7B-Instruct** (`head_dim=128`) instead.
+| Model | Status | head_dim | TP sizes | Notes |
+|-------|--------|----------|----------|-------|
+| **Qwen3.5-9B** | **Recommended** | 256 | 1, 2, 4 | Requires `--enforce-eager` |
+| Qwen2.5-VL-7B-Instruct | Fallback | 128 | 1, 2, 4, 7, 14 | Works on both images |
 
-TP (tensor-parallel) size must evenly divide the model's `num_attention_heads`. For Qwen2.5-VL-7B (28 heads), valid TP sizes are: 1, 2, 4, 7, 14.
+Qwen3.5-9B's hybrid GDN+Attention architecture is supported on Ascend via vllm_ascend >= 0.17. The `head_dim=256` in attention layers requires `--enforce-eager` (NPU fused attention kernel only supports 64/128/192, so the non-fused path is used).
 
-### Quick Start
+### Quick Start (Qwen3.5-9B — Recommended)
 
 ```bash
-# 1. Submit a job (16 NPUs = full node, shared filesystem, interactive)
-job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+# 1. Submit a job (16 NPUs = full node, interactive)
+job-run vidcopilot-qwen35 -f ./infra/d-cluster/job-vidcopilot-qwen35.yaml
 
 # 2. Exec into the pod
+pod-exec vidcopilot-qwen35
+
+# 3. One-command start: downloads model, starts vLLM, launches chat
+bash scripts/start_vidcopilot_ascend.sh /data/videos/myvideo.mp4
+
+# Or start server only, then chat separately:
+bash scripts/start_vidcopilot_ascend.sh --server-only
+python agent/main.py chat local /data/videos/myvideo.mp4 --cache-root ./cache
+```
+
+### Quick Start (Qwen2.5-VL — Legacy/Fallback)
+
+```bash
+# 1. Submit a job (uses older image)
+job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+
+# 2. Exec into pod, start vLLM + API
 pod-exec vidcopilot
-
-# 3. Inside the pod: download model via hf-mirror (cluster has no public internet)
-HF_ENDPOINT=https://hf-mirror.com python3 -c "
-from huggingface_hub import snapshot_download
-snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct', local_dir='/data/models/Qwen2.5-VL-7B-Instruct')
-"
-
-# 4. Start vLLM on NPU (Qwen2.5-VL, TP=4, enforce-eager)
 bash scripts/serving_qwen2_5vl_ascend.sh &
-
-# 5. Start the API server
 uvicorn server.app:app --host 0.0.0.0 --port 9000
-
-# 6. Run analysis (use --force-visual since ASR models can't be downloaded on cluster)
-python agent/main.py analyze local /path/to/video.mp4 --mode detailed --force-visual
 ```
 
 ### One-Command Test (launches job, starts vLLM, runs tests, cleans up)
@@ -621,13 +630,15 @@ bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1   # reuse exi
 bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
 ```
 
-### NPU Serving Script
+### NPU Serving Scripts
 
 ```bash
-# Default: TP=4, auto-detect model from /data/models or download via hf-mirror
-bash scripts/serving_qwen2_5vl_ascend.sh
+# Qwen3.5-9B (recommended)
+bash scripts/serving_qwen3_5_ascend.sh                      # TP=4, auto-detect model
+bash scripts/serving_qwen3_5_ascend.sh /data/models/Qwen3.5-9B
 
-# Custom model path and TP size
+# Qwen2.5-VL-7B (fallback)
+bash scripts/serving_qwen2_5vl_ascend.sh
 TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /data/models/Qwen2.5-VL-7B-Instruct
 ```
 
@@ -636,9 +647,9 @@ TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /data/models/Qwen2.5-VL-7B-In
 | Setting | GPU | NPU (Ascend 910C) |
 |---------|-----|--------------------|
 | Image | `python:3.11-slim` | `ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` |
-| Model | Qwen3.5-9B (recommended) | Qwen2.5-VL-7B-Instruct (Qwen3.5 head_dim=256 unsupported) |
-| vLLM backend | CUDA | `vllm_ascend` (auto-detected, A3-specific build required) |
-| vLLM flags | (default) | `--enforce-eager --max-model-len 16384` (NPU graph capture OOM) |
+| Model | Qwen3.5-9B | Qwen3.5-9B (with `--enforce-eager`) or Qwen2.5-VL-7B |
+| vLLM backend | CUDA | `vllm_ascend` (auto-detected) |
+| vLLM flags | (default) | `--enforce-eager --max-model-len 16384` |
 | Min devices | 1 GPU | 2 NPUs (cluster policy) |
 | Network | Public internet | No internet; use `HF_ENDPOINT=https://hf-mirror.com` for downloads |
 | Package manager | apt | yum/dnf |

@@ -345,10 +345,7 @@ class VideoChat:
             "Be concise but informative. Use timestamps when referencing specific moments."
         )
 
-        messages = [{"role": "system", "content": system_msg}]
-
-        # Add context as a system-level message
-        messages.append({"role": "system", "content": f"Video analysis context:\n{context}"})
+        messages = [{"role": "system", "content": system_msg + f"\n\nVideo analysis context:\n{context}"}]
 
         # Add conversation history (last 10 turns)
         for turn in self.history[-10:]:
