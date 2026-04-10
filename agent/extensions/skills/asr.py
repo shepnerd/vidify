@@ -32,7 +32,10 @@ def transcribe(audio_path: str, out_json_path: str,
         device = device or auto_dev
         compute_type = compute_type or auto_ct
 
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    # Try local model path first (for air-gapped clusters)
+    from agent.config import get_model_path
+    model_path = get_model_path(f"faster-whisper-{model_size}")
+    model = WhisperModel(model_path, device=device, compute_type=compute_type)
     segments, info = model.transcribe(audio_path, vad_filter=True)
 
     segs = []

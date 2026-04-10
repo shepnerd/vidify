@@ -92,5 +92,69 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, 
 
     click.echo(result)
 
+@cli.command()
+@click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
+@click.argument('uri')
+@click.option('--cache-root', default='./cache')
+@click.option('--chat-model', default=None,
+              help='LLM model for chat responses (default: same as analysis model)')
+@click.option('--chat-api-base', default=None,
+              help='API base URL for chat LLM (default: same as analysis)')
+@click.option('--chat-api-key', default=None,
+              help='API key for chat LLM (default: EMPTY for local vLLM)')
+@click.option('--vision-api-base', default=None,
+              help='API base for visual analysis (default: same as chat)')
+@click.option('--vision-model', default=None,
+              help='Model for visual analysis (default: same as chat)')
+@click.pass_context
+def chat(ctx, source_type, uri, cache_root, chat_model, chat_api_base,
+         chat_api_key, vision_api_base, vision_model):
+    """Interactive video Q&A — explore a video through conversation."""
+    from agent.chat import VideoChat, run_chat_repl
+    from agent.extensions.skills.persist import load_analysis
+    from agent.extensions.models.vllm_openai_client import make_client
+    from openai import OpenAI
+
+    cfg = ctx.obj['config']
+
+    # Load or download video
+    asset = load_video(source_type, uri, cache_root)
+
+    # Load cached analysis (or run one)
+    try:
+        analysis = load_analysis(asset.cache_dir)
+        click.echo(f"Loaded cached analysis from {asset.cache_dir}", err=True)
+    except Exception:
+        click.echo("No cached analysis found. Running brief analysis first...", err=True)
+        with CLIProgressDisplay(event_bus):
+            analysis_result = run(asset, "brief", cfg)
+        # analysis_result is a dict, load it back
+        analysis = load_analysis(asset.cache_dir)
+
+    # Set up chat LLM client
+    base_url = chat_api_base or cfg.get("llm_base_url", "http://localhost:8000/v1")
+    model = chat_model or cfg.get("llm_model", "qwen3.5-9b")
+    api_key = chat_api_key or "EMPTY"
+
+    chat_client = OpenAI(base_url=base_url, api_key=api_key, timeout=120.0)
+
+    # Set up vision client (may differ from chat client)
+    if vision_api_base:
+        vis_client = make_client(vision_api_base)
+    else:
+        vis_client = chat_client
+    vis_model = vision_model or model
+
+    session = VideoChat(
+        asset=asset,
+        analysis=analysis,
+        chat_client=chat_client,
+        chat_model=model,
+        vision_client=vis_client,
+        vision_model=vis_model,
+    )
+    run_chat_repl(session)
+
+
 if __name__ == "__main__":
     cli()

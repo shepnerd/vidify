@@ -45,8 +45,13 @@ def translate_asr_results(asr_results: List[Dict[str, Any]], target_lang: str = 
     """
     translated = []
     for segment in asr_results:
-        translated_text = translate_text(segment['text'], target_lang=target_lang)
-        new_segment = segment.copy()
+        # Support both dict and Pydantic ASRSegment objects
+        text = segment['text'] if isinstance(segment, dict) else segment.text
+        translated_text = translate_text(text, target_lang=target_lang)
+        if isinstance(segment, dict):
+            new_segment = segment.copy()
+        else:
+            new_segment = segment.model_dump() if hasattr(segment, 'model_dump') else dict(segment)
         new_segment['translated_text'] = translated_text
         translated.append(new_segment)
     return translated

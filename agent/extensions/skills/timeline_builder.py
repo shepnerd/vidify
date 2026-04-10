@@ -16,6 +16,16 @@ def build_timeline(metadata, transcript, frames, model_name: str, base_url: str,
     frame_snips = [{"ts": f.ts, "id": f.id, "cap": f.caption} for f in frames.items if f.caption][:128]
     asr_snips = [{"start": s.start, "end": s.end, "id": s.id, "text": s.text} for s in transcript.segments][:400]
 
+    # Truncate ASR to fit within model context — estimate ~4 chars per token
+    # Reserve ~6K tokens for ASR, leaving room for frames + prompt + output
+    MAX_ASR_CHARS = 24000
+    total_chars = sum(len(json.dumps(s, ensure_ascii=False)) for s in asr_snips)
+    if total_chars > MAX_ASR_CHARS:
+        # Sample uniformly across the timeline instead of truncating tail
+        keep = max(10, int(len(asr_snips) * MAX_ASR_CHARS / total_chars))
+        step = max(1, len(asr_snips) // keep)
+        asr_snips = asr_snips[::step][:keep]
+
     # Build content metadata context if available
     content_context = None
     if content_metadata:
