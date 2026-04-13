@@ -53,3 +53,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Cluster-specific infra configs
+infra/
