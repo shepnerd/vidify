@@ -42,3 +42,4 @@ Recent history uses short, focused subjects such as `npu support` and `update us
 
 ## Configuration & Assets
 Keep environment-specific values in `.env`; on GPU cluster flows, load it before job scripts with `set -a && source .env && set +a`. Model and workflow defaults live in `models.yaml`, `workflows.yaml`, and `config.yaml`. Do not commit generated `cache/` outputs or model weights under `models/`; call out external requirements such as `ffmpeg`, `yt-dlp`, or a vLLM endpoint when they affect setup or verification.
+Long-video defaults may also include `parallel_segments` and `parallel_asr` in `workflows.yaml`; if you change those behaviors, keep the helper scripts and setup docs aligned.

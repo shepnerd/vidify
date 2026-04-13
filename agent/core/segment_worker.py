@@ -39,6 +39,21 @@ def _is_frameset_dump(value) -> bool:
     return isinstance(value, dict) and "items" in value and "strategy" in value
 
 
+def _normalize_base_urls(llm_base_url) -> list[str]:
+    if llm_base_url is None:
+        return []
+    if isinstance(llm_base_url, str):
+        return [u.strip() for u in llm_base_url.split(",") if u.strip()]
+    return [str(u).strip() for u in llm_base_url if str(u).strip()]
+
+
+def _pick_base_url(llm_base_url, segment_index: int) -> Optional[str]:
+    urls = _normalize_base_urls(llm_base_url)
+    if not urls:
+        return None
+    return urls[segment_index % len(urls)]
+
+
 def _run_captioning(frames_dump, llm_model, llm_base_url, direct_model, model_path, tokenizer_path):
     """Wrapper for caption_frames that takes/returns serializable data."""
     frames = FrameSet(**frames_dump)
@@ -86,6 +101,7 @@ def process_segment(
     """
     seg_label = f"seg_{segment.index:03d} [{segment.start_sec:.0f}s-{segment.end_sec:.0f}s]"
     logger.info("[segment_worker] Processing %s", seg_label)
+    seg_base_url = _pick_base_url(llm_base_url, segment.index)
 
     # --- Step 1: Frame sampling for this segment's time range ---
     frames_dir = os.path.join(segment.cache_dir, "frames")
@@ -120,7 +136,7 @@ def process_segment(
     # Captioning runs alongside analysis — both only need frame paths
     if need_captioning:
         parallel_skills.append(("captioning", _safe_caption,
-                                (frames.model_dump(), llm_model, llm_base_url,
+                                (frames.model_dump(), llm_model, seg_base_url,
                                  direct_model, model_path, tokenizer_path), {}))
 
     if frame_paths:

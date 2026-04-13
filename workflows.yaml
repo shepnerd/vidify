@@ -17,6 +17,20 @@ brief:
   prefer_subtitles_over_asr: true
   max_frames: 64
   output_format: "text"
+  parallel_segments:
+    enabled: false
+    segmentor_name: scene
+    segment_duration: 180
+    scene_threshold: 0.25
+    max_workers: 4
+    min_video_duration: 300
+    min_segment_duration: 20
+  parallel_asr:
+    enabled: false
+    max_workers: 4
+    segment_duration: 240
+    min_audio_duration: 300
+    min_segment_duration: 30
 
 detailed:
   steps:
@@ -48,10 +62,18 @@ detailed:
   # OCR, detection, emotion). Results are merged before timeline generation.
   parallel_segments:
     enabled: false              # set true to activate
-    segment_duration: 300       # seconds per segment (5 min)
+    segmentor_name: scene       # duration | scene
+    segment_duration: 180       # cap long scenes at 3 min
+    scene_threshold: 0.25       # ffmpeg scene-detect threshold
     max_workers: 4              # concurrent segment workers
     min_video_duration: 300     # only parallelize videos longer than this (seconds)
-    min_segment_duration: 30    # merge tail segments shorter than this
+    min_segment_duration: 20    # merge tail segments shorter than this
+  parallel_asr:
+    enabled: false
+    max_workers: 4
+    segment_duration: 240
+    min_audio_duration: 300
+    min_segment_duration: 30
 
 live_stream:
   steps:

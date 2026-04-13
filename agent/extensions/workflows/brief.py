@@ -17,6 +17,7 @@ from agent.core.skill_guard import skill_guard
 from agent.core.events import event_bus, EventType
 from agent.core.parallel import run_segments_parallel
 from agent.core.segment import split_video_into_segments, merge_framesets
+from agent.extensions.utils import split_video_segment
 
 _UNSET = object()  # sentinel to distinguish "not provided" from explicit None
 
@@ -27,6 +28,66 @@ def _is_frameset_dump(value) -> bool:
     return isinstance(value, dict) and "items" in value and "strategy" in value
 
 
+def _normalize_base_urls(llm_base_url) -> list[str]:
+    if llm_base_url is None:
+        return []
+    if isinstance(llm_base_url, str):
+        return [u.strip() for u in llm_base_url.split(",") if u.strip()]
+    return [str(u).strip() for u in llm_base_url if str(u).strip()]
+
+
+def _primary_base_url(llm_base_url: str) -> str:
+    urls = _normalize_base_urls(llm_base_url)
+    return urls[0] if urls else llm_base_url
+
+
+def _pick_base_url(llm_base_url, segment_index: int) -> str:
+    urls = _normalize_base_urls(llm_base_url)
+    if not urls:
+        return llm_base_url
+    return urls[segment_index % len(urls)]
+
+
+def _parallel_seg_cfg(wf_cfg: dict) -> dict:
+    seg_cfg = dict(wf_cfg.get('parallel_segments', {}))
+    env_enabled = os.environ.get("VIDIFY_PARALLEL_SEGMENTS")
+    if env_enabled is not None:
+        seg_cfg["enabled"] = env_enabled.lower() in ("1", "true", "yes", "on")
+    if os.environ.get("VIDIFY_SEGMENTOR"):
+        seg_cfg["segmentor_name"] = os.environ["VIDIFY_SEGMENTOR"]
+    if os.environ.get("VIDIFY_SEGMENT_DURATION"):
+        seg_cfg["segment_duration"] = float(os.environ["VIDIFY_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_SCENE_THRESHOLD"):
+        seg_cfg["scene_threshold"] = float(os.environ["VIDIFY_SCENE_THRESHOLD"])
+    if os.environ.get("VIDIFY_PARALLEL_WORKERS"):
+        seg_cfg["max_workers"] = int(os.environ["VIDIFY_PARALLEL_WORKERS"])
+    if os.environ.get("VIDIFY_MIN_VIDEO_DURATION"):
+        seg_cfg["min_video_duration"] = float(os.environ["VIDIFY_MIN_VIDEO_DURATION"])
+    if os.environ.get("VIDIFY_MIN_SEGMENT_DURATION"):
+        seg_cfg["min_segment_duration"] = float(os.environ["VIDIFY_MIN_SEGMENT_DURATION"])
+    return seg_cfg
+
+
+def _parallel_asr_cfg(wf_cfg: dict) -> dict:
+    asr_cfg = dict(wf_cfg.get('parallel_asr', {}))
+    env_enabled = os.environ.get("VIDIFY_PARALLEL_ASR")
+    if env_enabled is not None:
+        asr_cfg["enabled"] = env_enabled.lower() in ("1", "true", "yes", "on")
+    if os.environ.get("VIDIFY_ASR_WORKERS"):
+        asr_cfg["max_workers"] = int(os.environ["VIDIFY_ASR_WORKERS"])
+    if os.environ.get("VIDIFY_ASR_SEGMENT_DURATION"):
+        asr_cfg["segment_duration"] = float(os.environ["VIDIFY_ASR_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_ASR_MIN_AUDIO_DURATION"):
+        asr_cfg["min_audio_duration"] = float(os.environ["VIDIFY_ASR_MIN_AUDIO_DURATION"])
+    if os.environ.get("VIDIFY_ASR_MIN_SEGMENT_DURATION"):
+        asr_cfg["min_segment_duration"] = float(os.environ["VIDIFY_ASR_MIN_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_ASR_DEVICES"):
+        asr_cfg["devices"] = [
+            item.strip() for item in os.environ["VIDIFY_ASR_DEVICES"].split(",") if item.strip()
+        ]
+    return asr_cfg
+
+
 def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
                           direct_model, model_path, tokenizer_path):
     """Process a single segment for brief workflow: sample frames + caption."""
@@ -34,17 +95,35 @@ def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
     seg_label = f"seg_{segment.index:03d}"
     logger.info("[brief_segment] Processing %s", seg_label)
 
-    frames_dir = os.path.join(segment.cache_dir, "frames")
-    frames = sample_frames(
-        asset, frames_dir, strategy,
-        start_sec=segment.start_sec,
-        end_sec=segment.end_sec,
-    )
-    frames = caption_frames(
-        frames, llm_model, llm_base_url, batch_size=8,
-        direct_model=direct_model, model_path=model_path,
-        tokenizer_path=tokenizer_path,
-    )
+    seg_base_url = _pick_base_url(llm_base_url, segment.index)
+    if supports_video(llm_model):
+        seg_path = os.path.join(segment.cache_dir, "segment.mp4")
+        if not (os.path.isfile(seg_path) and os.path.getsize(seg_path) > 0):
+            split_video_segment(
+                asset.local_path,
+                segment.start_sec,
+                segment.end_sec - segment.start_sec,
+                seg_path,
+            )
+        frames = caption_video_as_frameset(
+            seg_path, llm_model, seg_base_url,
+            direct_model=direct_model, model_path=model_path,
+            tokenizer_path=tokenizer_path,
+        )
+        for item in frames.items:
+            item.ts += segment.start_sec
+    else:
+        frames_dir = os.path.join(segment.cache_dir, "frames")
+        frames = sample_frames(
+            asset, frames_dir, strategy,
+            start_sec=segment.start_sec,
+            end_sec=segment.end_sec,
+        )
+        frames = caption_frames(
+            frames, llm_model, seg_base_url, batch_size=8,
+            direct_model=direct_model, model_path=model_path,
+            tokenizer_path=tokenizer_path,
+        )
     logger.info("[brief_segment] %s: done (%d frames)", seg_label, len(frames.items))
     return {"frames": frames.model_dump()}
 
@@ -74,6 +153,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
         include_web_search = wf_cfg.get('include_web_search', False)
     if force_visual is None:
         force_visual = wf_cfg.get('force_visual', False)
+    llm_base_url = _normalize_base_urls(llm_base_url)
 
     # --- Step 1: Probe video technical metadata ---
     event_bus.emit_skill_start("Video Probe", progress_pct=5)
@@ -99,11 +179,18 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     if transcript is None and meta.has_audio and whisper_model:
         logger.info("No subtitles available, running ASR with Whisper (%s)...", whisper_model)
         audio = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
+        asr_cfg = _parallel_asr_cfg(wf_cfg)
         try:
             transcript = transcribe(
                 audio,
                 os.path.join(asset.cache_dir, "asr.json"),
                 model_size=whisper_model,
+                parallel=asr_cfg.get("enabled", False),
+                max_workers=asr_cfg.get("max_workers"),
+                devices=asr_cfg.get("devices"),
+                segment_duration_sec=asr_cfg.get("segment_duration", 300),
+                min_audio_duration_sec=asr_cfg.get("min_audio_duration", 300),
+                min_segment_duration_sec=asr_cfg.get("min_segment_duration", 30),
             )
         except Exception as e:
             local_only = has_local_whisper_model(whisper_model)
@@ -142,30 +229,31 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
         logger.info("Transcript insufficient, running visual processing...")
 
         # Check if parallel segments should be used
-        seg_cfg = wf_cfg.get('parallel_segments', {})
+        seg_cfg = _parallel_seg_cfg(wf_cfg)
         use_parallel = (
             seg_cfg.get('enabled', False)
             and meta.duration_sec >= seg_cfg.get('min_video_duration', 300)
-            and not supports_video(llm_model)  # video-native models handle full video
         )
 
-        if supports_video(llm_model):
-            frames = caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
-                                               direct_model=direct_model, model_path=model_path,
-                                               tokenizer_path=tokenizer_path)
-        elif use_parallel:
-            # Parallel segment path for long videos
+        if use_parallel:
             segments = split_video_into_segments(
                 duration_sec=meta.duration_sec,
                 base_cache_dir=asset.cache_dir,
-                segment_duration=seg_cfg.get('segment_duration', 300),
+                video_path=asset.local_path,
+                segment_duration=seg_cfg.get('segment_duration', 180),
                 min_segment_duration=seg_cfg.get('min_segment_duration', 30),
+                segmentor_name=seg_cfg.get('segmentor_name', 'duration'),
+                scene_threshold=seg_cfg.get('scene_threshold', 0.25),
             )
             if len(segments) > 1:
                 per_seg_max = max(8, max_frames // len(segments))
                 strategy = _make_strategy(per_seg_max)
-                logger.info("Brief parallel: %d segments, %d workers",
-                            len(segments), seg_cfg.get('max_workers', 4))
+                logger.info(
+                    "Brief parallel: %d segments, %d workers, segmentor=%s, endpoints=%d",
+                    len(segments), seg_cfg.get('max_workers', 4),
+                    seg_cfg.get('segmentor_name', 'duration'),
+                    len(llm_base_url) or 1,
+                )
 
                 seg_outputs = run_segments_parallel(
                     segments=segments,
@@ -185,21 +273,21 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
                 ]
                 frames = merge_framesets(seg_frames, segments, strategy)
             else:
-                # Fallback: single segment
-                frames = sample_frames(
-                    asset, os.path.join(asset.cache_dir, "frames"),
-                    _make_strategy()
-                )
-                frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
-                                        direct_model=direct_model, model_path=model_path,
-                                        tokenizer_path=tokenizer_path)
+                use_parallel = False
+
+        if use_parallel:
+            pass
+        elif supports_video(llm_model):
+            frames = caption_video_as_frameset(asset.local_path, llm_model, _primary_base_url(llm_base_url),
+                                               direct_model=direct_model, model_path=model_path,
+                                               tokenizer_path=tokenizer_path)
         else:
             # Original sequential path
             frames = sample_frames(
                 asset, os.path.join(asset.cache_dir, "frames"),
                 _make_strategy()
             )
-            frames = caption_frames(frames, llm_model, llm_base_url, batch_size=8,
+            frames = caption_frames(frames, llm_model, _primary_base_url(llm_base_url), batch_size=8,
                                     direct_model=direct_model, model_path=model_path,
                                     tokenizer_path=tokenizer_path)
     else:
@@ -212,7 +300,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     # --- Step 5: Build timeline ---
     event_bus.emit_skill_start("Timeline Builder", progress_pct=60)
     content_meta = meta.content if meta.content else asset.content_metadata
-    timeline = build_timeline(meta, transcript, frames, llm_model, llm_base_url,
+    timeline = build_timeline(meta, transcript, frames, llm_model, _primary_base_url(llm_base_url),
                               content_metadata=content_meta,
                               direct_model=direct_model, model_path=model_path,
                               tokenizer_path=tokenizer_path)

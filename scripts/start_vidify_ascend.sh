@@ -149,45 +149,104 @@ WHISPER_MODEL=""
 if [[ -d models/whisper-small ]]; then
     WHISPER_MODEL="small"
     ok "Offline ASR model available: ${BOLD}whisper-small${NC}"
+elif [[ -d models/faster-whisper-small ]]; then
+    WHISPER_MODEL="small"
+    ok "Offline ASR model available: ${BOLD}faster-whisper-small${NC}"
 else
     info "Offline ASR model not found; chat will stay transcript/meta-first and skip Whisper fallback"
 fi
 
 # ── Step 4: Start vLLM server ───────────────────────────────────────────────
-# Check if vLLM is already running
-if curl -sf "http://localhost:${VLLM_PORT}/v1/models" >/dev/null 2>&1; then
-    ok "vLLM already running on port ${VLLM_PORT}"
-    SERVED_MODEL=$(curl -sf "http://localhost:${VLLM_PORT}/v1/models" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
-    ok "Serving model: ${BOLD}${SERVED_MODEL}${NC}"
+TP_SIZE_PER_INSTANCE="${TP_SIZE_PER_INSTANCE:-4}"
+INSTANCE_COUNT="${INSTANCE_COUNT:-}"
+if [[ -z "${INSTANCE_COUNT}" ]]; then
+    if (( NPU_COUNT >= 16 )) && (( TP_SIZE_PER_INSTANCE == 4 )); then
+        INSTANCE_COUNT=$(( NPU_COUNT / TP_SIZE_PER_INSTANCE ))
+    else
+        INSTANCE_COUNT=1
+    fi
+fi
+if (( INSTANCE_COUNT < 1 )); then
+    INSTANCE_COUNT=1
+fi
+MAX_INSTANCES=$(( NPU_COUNT / TP_SIZE_PER_INSTANCE ))
+if (( MAX_INSTANCES < 1 )); then MAX_INSTANCES=1; fi
+if (( INSTANCE_COUNT > MAX_INSTANCES )); then INSTANCE_COUNT="${MAX_INSTANCES}"; fi
+
+declare -a API_BASES=()
+
+collect_running_bases() {
+    local bases=()
+    local i port
+    for (( i=0; i<INSTANCE_COUNT; i++ )); do
+        port=$(( VLLM_PORT + i ))
+        if curl -sf "http://localhost:${port}/v1/models" >/dev/null 2>&1; then
+            bases+=("http://localhost:${port}/v1")
+        fi
+    done
+    printf '%s\n' "${bases[@]}"
+}
+
+start_vllm_instance() {
+    local idx="$1"
+    local port="$2"
+    local start_dev=$(( idx * TP_SIZE_PER_INSTANCE ))
+    local end_dev=$(( start_dev + TP_SIZE_PER_INSTANCE - 1 ))
+    local devices=""
+    local d
+    for (( d=start_dev; d<=end_dev; d++ )); do
+        if [[ -n "${devices}" ]]; then devices+=",${d}"; else devices="${d}"; fi
+    done
+
+    info "Starting vLLM instance ${idx} on port ${port} (devices=${devices}, TP=${TP_SIZE_PER_INSTANCE})..."
+    env ASCEND_RT_VISIBLE_DEVICES="${devices}" ASCEND_VISIBLE_DEVICES="${devices}" \
+        vllm serve "$MODEL_PATH" \
+            --host 0.0.0.0 \
+            --port "$port" \
+            --tensor-parallel-size "${TP_SIZE_PER_INSTANCE}" \
+            --max-model-len 16384 \
+            --enforce-eager \
+            --trust-remote-code \
+            --reasoning-parser qwen3 \
+            --allowed-local-media-path "$(pwd)/cache" \
+            > "/tmp/vllm_${port}.log" 2>&1 &
+}
+
+while IFS= read -r base; do
+    [[ -n "${base}" ]] && API_BASES+=("${base}")
+done < <(collect_running_bases)
+
+if (( ${#API_BASES[@]} == INSTANCE_COUNT )); then
+    SERVED_MODEL=$(curl -sf "${API_BASES[0]}/models" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
+    ok "Reusing ${#API_BASES[@]} running vLLM endpoint(s): ${BOLD}${SERVED_MODEL}${NC}"
 else
-    info "Starting vLLM server (TP=4, enforce-eager)..."
+    if (( ${#API_BASES[@]} > 0 )); then
+        info "Found ${#API_BASES[@]} existing endpoint(s); starting the remaining $(( INSTANCE_COUNT - ${#API_BASES[@]} )) instance(s)..."
+    else
+        info "Starting ${INSTANCE_COUNT} vLLM instance(s) for pooled scene-parallel processing..."
+    fi
     mkdir -p /tmp
+    for (( i=0; i<INSTANCE_COUNT; i++ )); do
+        port=$(( VLLM_PORT + i ))
+        if ! curl -sf "http://localhost:${port}/v1/models" >/dev/null 2>&1; then
+            start_vllm_instance "$i" "$port"
+        fi
+    done
 
-    vllm serve "$MODEL_PATH" \
-        --host 0.0.0.0 \
-        --port "$VLLM_PORT" \
-        --tensor-parallel-size 4 \
-        --max-model-len 16384 \
-        --enforce-eager \
-        --trust-remote-code \
-        --reasoning-parser qwen3 \
-        --allowed-local-media-path "$(pwd)/cache" \
-        > /tmp/vllm.log 2>&1 &
-    VLLM_PID=$!
-
-    info "Waiting for vLLM to be ready (PID=${VLLM_PID})..."
     WAITED=0
-    while ! curl -sf "http://localhost:${VLLM_PORT}/v1/models" >/dev/null 2>&1; do
-        if ! kill -0 "$VLLM_PID" 2>/dev/null; then
-            err "vLLM process died! Last logs:"
-            tail -30 /tmp/vllm.log
-            exit 1
+    while true; do
+        API_BASES=()
+        while IFS= read -r base; do
+            [[ -n "${base}" ]] && API_BASES+=("${base}")
+        done < <(collect_running_bases)
+        if (( ${#API_BASES[@]} == INSTANCE_COUNT )); then
+            break
         fi
         sleep 10
         WAITED=$((WAITED + 10))
         if (( WAITED >= 1200 )); then
-            err "vLLM not ready after 20 minutes"
-            tail -50 /tmp/vllm.log
+            err "vLLM pool not ready after 20 minutes"
+            ls /tmp/vllm_*.log 2>/dev/null | xargs -r tail -20
             exit 1
         fi
         if (( WAITED % 60 == 0 )); then
@@ -195,20 +254,36 @@ else
         fi
     done
 
-    SERVED_MODEL=$(curl -sf "http://localhost:${VLLM_PORT}/v1/models" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
-    ok "vLLM ready after ${WAITED}s — serving ${BOLD}${SERVED_MODEL}${NC}"
+    SERVED_MODEL=$(curl -sf "${API_BASES[0]}/models" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
+    ok "vLLM pool ready after ${WAITED}s — serving ${BOLD}${SERVED_MODEL}${NC} across ${#API_BASES[@]} endpoint(s)"
 fi
 
-API_BASE="http://localhost:${VLLM_PORT}/v1"
+API_BASE="${API_BASES[0]}"
+API_BASES_CSV="$(IFS=,; echo "${API_BASES[*]}")"
+export VIDIFY_PARALLEL_SEGMENTS=1
+export VIDIFY_SEGMENTOR="${VIDIFY_SEGMENTOR:-scene}"
+export VIDIFY_SEGMENT_DURATION="${VIDIFY_SEGMENT_DURATION:-180}"
+export VIDIFY_SCENE_THRESHOLD="${VIDIFY_SCENE_THRESHOLD:-0.25}"
+export VIDIFY_PARALLEL_WORKERS="${VIDIFY_PARALLEL_WORKERS:-$(( INSTANCE_COUNT * 2 ))}"
+export VIDIFY_MIN_VIDEO_DURATION="${VIDIFY_MIN_VIDEO_DURATION:-120}"
+export VIDIFY_MIN_SEGMENT_DURATION="${VIDIFY_MIN_SEGMENT_DURATION:-20}"
+export VIDIFY_PARALLEL_ASR="${VIDIFY_PARALLEL_ASR:-1}"
+export VIDIFY_ASR_WORKERS="${VIDIFY_ASR_WORKERS:-4}"
+export VIDIFY_ASR_SEGMENT_DURATION="${VIDIFY_ASR_SEGMENT_DURATION:-240}"
+export VIDIFY_ASR_MIN_AUDIO_DURATION="${VIDIFY_ASR_MIN_AUDIO_DURATION:-300}"
+export VIDIFY_ASR_MIN_SEGMENT_DURATION="${VIDIFY_ASR_MIN_SEGMENT_DURATION:-30}"
+export VIDIFY_ASR_DEVICES="${VIDIFY_ASR_DEVICES:-cpu,cpu,cpu,cpu}"
 
 # ── Step 5: Write config ────────────────────────────────────────────────────
 cat > config.yaml <<YAML
-llm_base_url: "${API_BASE}"
+llm_base_url: "${API_BASES_CSV}"
 llm_model: "${SERVED_MODEL}"
 whisper_model: "${WHISPER_MODEL}"
 YAML
 
 info "Using served model id: ${SERVED_MODEL}"
+info "Scene-parallel endpoints: ${API_BASES_CSV}"
+info "Parallel ASR workers: ${VIDIFY_ASR_WORKERS} on devices=${VIDIFY_ASR_DEVICES}"
 if [[ -n "${WHISPER_MODEL}" ]]; then
     info "Configured offline Whisper fallback: ${WHISPER_MODEL}"
 fi

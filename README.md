@@ -422,8 +422,9 @@ Long Video → split into N segments (by duration)
          Timeline builder (on merged data)
 ```
 
-**What stays global:** probe, ASR/subtitles, sufficiency check, timeline, translation, web search.
+**What stays global:** probe, sufficiency check, timeline, translation, web search.
 **What gets parallelized:** frame sampling, MLLM captioning, OCR, object detection, emotion analysis.
+**What can also be parallelized:** long-audio Whisper ASR via clip split/merge with timestamp adjustment.
 
 Enable in `workflows.yaml`:
 
@@ -435,6 +436,12 @@ detailed:
     max_workers: 4             # concurrent segment workers
     min_video_duration: 300    # only for videos longer than this
     min_segment_duration: 30   # merge tiny tail into previous segment
+  parallel_asr:
+    enabled: true
+    max_workers: 4
+    segment_duration: 240      # seconds per ASR clip
+    min_audio_duration: 300
+    min_segment_duration: 30
 ```
 
 **Pluggable segmentation:** The segmentation strategy is abstracted behind a `BaseSegmentor` interface (`agent/core/segment.py`). The default `DurationSegmentor` uses fixed-duration splits via FFmpeg time ranges. Custom segmentors (e.g., DL-based temporal boundary detection with TransNetV2, or semantic segmentation via CLIP) can be registered at runtime:
@@ -632,7 +639,9 @@ bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1   # reuse exi
 bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
 ```
 
-On Ascend, the repo keeps its transcript-first design: subtitles and local ASR are attempted before visual captioning. If `models/whisper-small` is not present in the pod, the Ascend helper scripts now disable Whisper automatically and fall back to meta/subtitles first, then visual analysis only when sufficiency requires it.
+On Ascend, the repo keeps its transcript-first design: subtitles and local ASR are attempted before visual captioning. If `models/whisper-small` is not present but `models/faster-whisper-small` is available, the repo now uses that offline ASR backend automatically. If neither local model is present in the pod, the Ascend helper scripts disable Whisper automatically and fall back to meta/subtitles first, then visual analysis only when sufficiency requires it.
+
+Long audio can now use clip-level parallel Whisper ASR with merge-back timestamp correction. The Ascend helper scripts enable this by default with CPU workers (`VIDIFY_ASR_DEVICES=cpu,cpu,cpu,cpu`) so ASR does not fight the 16-NPU vLLM pool. If you want accelerator-backed ASR instead, explicitly set `VIDIFY_ASR_DEVICES` to reserved devices such as `npu:12,npu:13` or `cuda:0,cuda:1`.
 
 ### NPU Serving Scripts
 
@@ -668,7 +677,7 @@ D-cluster nodes **cannot reach the public internet**. For model/package download
 - **PyPI packages**: Use internal proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
 - **Whisper/wav2vec2 models**: Must be pre-downloaded on a node with internet access and copied to the pod, or use `whisper_model: null` in `config.yaml` to skip ASR
 
-The Ascend helper scripts handle this automatically: they detect whether `models/whisper-small` is available locally, set `llm_model` to the actual served vLLM model id, and avoid attempting broken public-network Whisper downloads inside the pod.
+The Ascend helper scripts handle this automatically: they detect whether `models/whisper-small` or `models/faster-whisper-small` is available locally, set `llm_model` to the actual served vLLM model id, and avoid attempting broken public-network Whisper downloads inside the pod.
 
 ### Rebuilding the Image
 

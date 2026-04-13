@@ -58,6 +58,59 @@ _UNSET = object()  # sentinel to distinguish "not provided" from explicit None
 def _is_frameset_dump(value) -> bool:
     return isinstance(value, dict) and "items" in value and "strategy" in value
 
+
+def _normalize_base_urls(llm_base_url) -> list[str]:
+    if llm_base_url is None:
+        return []
+    if isinstance(llm_base_url, str):
+        return [u.strip() for u in llm_base_url.split(",") if u.strip()]
+    return [str(u).strip() for u in llm_base_url if str(u).strip()]
+
+
+def _primary_base_url(llm_base_url):
+    urls = _normalize_base_urls(llm_base_url)
+    return urls[0] if urls else llm_base_url
+
+
+def _parallel_seg_cfg(wf_cfg: dict) -> dict:
+    seg_cfg = dict(wf_cfg.get('parallel_segments', {}))
+    env_enabled = os.environ.get("VIDIFY_PARALLEL_SEGMENTS")
+    if env_enabled is not None:
+        seg_cfg["enabled"] = env_enabled.lower() in ("1", "true", "yes", "on")
+    if os.environ.get("VIDIFY_SEGMENTOR"):
+        seg_cfg["segmentor_name"] = os.environ["VIDIFY_SEGMENTOR"]
+    if os.environ.get("VIDIFY_SEGMENT_DURATION"):
+        seg_cfg["segment_duration"] = float(os.environ["VIDIFY_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_SCENE_THRESHOLD"):
+        seg_cfg["scene_threshold"] = float(os.environ["VIDIFY_SCENE_THRESHOLD"])
+    if os.environ.get("VIDIFY_PARALLEL_WORKERS"):
+        seg_cfg["max_workers"] = int(os.environ["VIDIFY_PARALLEL_WORKERS"])
+    if os.environ.get("VIDIFY_MIN_VIDEO_DURATION"):
+        seg_cfg["min_video_duration"] = float(os.environ["VIDIFY_MIN_VIDEO_DURATION"])
+    if os.environ.get("VIDIFY_MIN_SEGMENT_DURATION"):
+        seg_cfg["min_segment_duration"] = float(os.environ["VIDIFY_MIN_SEGMENT_DURATION"])
+    return seg_cfg
+
+
+def _parallel_asr_cfg(wf_cfg: dict) -> dict:
+    asr_cfg = dict(wf_cfg.get('parallel_asr', {}))
+    env_enabled = os.environ.get("VIDIFY_PARALLEL_ASR")
+    if env_enabled is not None:
+        asr_cfg["enabled"] = env_enabled.lower() in ("1", "true", "yes", "on")
+    if os.environ.get("VIDIFY_ASR_WORKERS"):
+        asr_cfg["max_workers"] = int(os.environ["VIDIFY_ASR_WORKERS"])
+    if os.environ.get("VIDIFY_ASR_SEGMENT_DURATION"):
+        asr_cfg["segment_duration"] = float(os.environ["VIDIFY_ASR_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_ASR_MIN_AUDIO_DURATION"):
+        asr_cfg["min_audio_duration"] = float(os.environ["VIDIFY_ASR_MIN_AUDIO_DURATION"])
+    if os.environ.get("VIDIFY_ASR_MIN_SEGMENT_DURATION"):
+        asr_cfg["min_segment_duration"] = float(os.environ["VIDIFY_ASR_MIN_SEGMENT_DURATION"])
+    if os.environ.get("VIDIFY_ASR_DEVICES"):
+        asr_cfg["devices"] = [
+            item.strip() for item in os.environ["VIDIFY_ASR_DEVICES"].split(",") if item.strip()
+        ]
+    return asr_cfg
+
 def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                 max_frames: int = None,
                 whisper_model: str = _UNSET,
@@ -88,6 +141,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
         include_web_search = wf_cfg.get('include_web_search', False)
     if force_visual is None:
         force_visual = wf_cfg.get('force_visual', False)
+    llm_base_url = _normalize_base_urls(llm_base_url)
 
     # --- Step 1: Probe video technical metadata ---
     event_bus.emit_skill_start("Video Probe", progress_pct=5)
@@ -105,6 +159,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     executor = ThreadPoolExecutor(max_workers=2)
 
     # Submit audio/transcript path
+    asset._parallel_asr_cfg = _parallel_asr_cfg(wf_cfg)
     transcript_future = executor.submit(
         _extract_transcript, asset, meta, whisper_model
     )
@@ -136,7 +191,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     logger.info("Content sufficiency: %s — %s", sufficiency.is_sufficient, sufficiency.reason)
 
     # --- Step 4: Parallel segment path vs. sequential path ---
-    seg_cfg = wf_cfg.get('parallel_segments', {})
+    seg_cfg = _parallel_seg_cfg(wf_cfg)
     use_parallel = (
         seg_cfg.get('enabled', False)
         and meta.duration_sec >= seg_cfg.get('min_video_duration', 300)
@@ -176,7 +231,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
         lambda: _safe_translate(transcript.segments, target_lang=target_lang) if transcript.segments else []
     )
     timeline_future = executor2.submit(
-        build_timeline, meta, transcript, frames, llm_model, llm_base_url,
+        build_timeline, meta, transcript, frames, llm_model, _primary_base_url(llm_base_url),
         content_metadata=content_meta, direct_model=direct_model,
         model_path=model_path, tokenizer_path=tokenizer_path,
     )
@@ -237,6 +292,7 @@ def _extract_transcript(asset, meta, whisper_model):
 
     # ASR fallback — also extract audio (needed for emotion analysis)
     if meta.has_audio:
+        asr_cfg = getattr(asset, "_parallel_asr_cfg", None) or {}
         audio_path = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
         if transcript is None and whisper_model:
             logger.info("No subtitles, running ASR with Whisper (%s)...", whisper_model)
@@ -245,6 +301,12 @@ def _extract_transcript(asset, meta, whisper_model):
                     audio_path,
                     os.path.join(asset.cache_dir, "asr.json"),
                     model_size=whisper_model,
+                    parallel=asr_cfg.get("enabled", False),
+                    max_workers=asr_cfg.get("max_workers"),
+                    devices=asr_cfg.get("devices"),
+                    segment_duration_sec=asr_cfg.get("segment_duration", 300),
+                    min_audio_duration_sec=asr_cfg.get("min_audio_duration", 300),
+                    min_segment_duration_sec=asr_cfg.get("min_segment_duration", 30),
                 )
             except Exception as e:
                 local_only = has_local_whisper_model(whisper_model)
@@ -291,14 +353,14 @@ def _run_sequential(asset, frames, sufficiency, llm_model, llm_base_url,
         if supports_video(llm_model):
             # Video-native model: pass through video file directly
             _safe_caption_video = skill_guard("Video Captioning", optional=True, default=None)(
-                lambda: caption_video_as_frameset(asset.local_path, llm_model, llm_base_url,
+                lambda: caption_video_as_frameset(asset.local_path, llm_model, _primary_base_url(llm_base_url),
                                                    direct_model=direct_model, model_path=model_path,
                                                    tokenizer_path=tokenizer_path)
             )
             parallel_skills.append(("captioning", _safe_caption_video, (), {}))
         else:
             _safe_caption = skill_guard("Frame Captioning", optional=True, default=None)(
-                lambda: caption_frames(frames, llm_model, llm_base_url, batch_size=8,
+                lambda: caption_frames(frames, llm_model, _primary_base_url(llm_base_url), batch_size=8,
                                        direct_model=direct_model, model_path=model_path,
                                        tokenizer_path=tokenizer_path)
             )
@@ -354,8 +416,11 @@ def _run_parallel_segments(asset, meta, sufficiency, llm_model, llm_base_url,
     segments = split_video_into_segments(
         duration_sec=meta.duration_sec,
         base_cache_dir=asset.cache_dir,
+        video_path=asset.local_path,
         segment_duration=segment_duration,
         min_segment_duration=min_segment,
+        segmentor_name=seg_cfg.get('segmentor_name', 'duration'),
+        scene_threshold=seg_cfg.get('scene_threshold', 0.25),
     )
 
     if len(segments) <= 1:
@@ -368,7 +433,7 @@ def _run_parallel_segments(asset, meta, sufficiency, llm_model, llm_base_url,
         )
         return _run_sequential(
             asset=asset, frames=frames, sufficiency=sufficiency,
-            llm_model=llm_model, llm_base_url=llm_base_url,
+            llm_model=llm_model, llm_base_url=_primary_base_url(llm_base_url),
             direct_model=direct_model,
             model_path=model_path, tokenizer_path=tokenizer_path,
             audio_path=audio_path, wf_cfg=wf_cfg,

@@ -19,8 +19,10 @@ To implement a custom segmentor, subclass `BaseSegmentor` and override
 `segment()`. Register it via `get_segmentor(name)`.
 """
 import os
+import re
 import logging
 import math
+import subprocess
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
@@ -140,12 +142,80 @@ class DurationSegmentor(BaseSegmentor):
         return segments
 
 
+class SceneSegmentor(BaseSegmentor):
+    """Split video using FFmpeg scene cuts, with duration caps for long scenes."""
+
+    def __init__(self, segment_duration: float = 180.0,
+                 scene_threshold: float = 0.25, **kwargs):
+        super().__init__(**kwargs)
+        self.segment_duration = segment_duration
+        self.scene_threshold = scene_threshold
+
+    def _detect_scene_cuts(self, video_path: str) -> List[float]:
+        if not video_path or not os.path.isfile(video_path):
+            return []
+
+        cmd = [
+            "ffmpeg", "-hide_banner", "-i", video_path,
+            "-filter:v", f"select='gt(scene,{self.scene_threshold})',showinfo",
+            "-an", "-f", "null", "-",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+
+        cuts: List[float] = []
+        for match in re.finditer(r"pts_time:([0-9]+(?:\.[0-9]+)?)", text):
+            ts = float(match.group(1))
+            if ts > 0:
+                cuts.append(ts)
+
+        uniq = []
+        last = None
+        for ts in sorted(cuts):
+            if last is None or abs(ts - last) > 0.25:
+                uniq.append(ts)
+                last = ts
+        return uniq
+
+    def segment(self, video_path: str, duration_sec: float,
+                base_cache_dir: str) -> List[VideoSegment]:
+        if duration_sec <= 0:
+            return []
+
+        cuts = self._detect_scene_cuts(video_path)
+        boundaries = [0.0] + [ts for ts in cuts if 0 < ts < duration_sec] + [duration_sec]
+
+        segments: List[VideoSegment] = []
+        seg_idx = 0
+        for start, end in zip(boundaries, boundaries[1:]):
+            cur = start
+            while (end - cur) > self.segment_duration:
+                nxt = cur + self.segment_duration
+                segments.append(self._make_segment(seg_idx, cur, nxt, base_cache_dir))
+                seg_idx += 1
+                cur = nxt
+            if end > cur:
+                segments.append(self._make_segment(seg_idx, cur, end, base_cache_dir))
+                seg_idx += 1
+
+        if not segments:
+            segments = [self._make_segment(0, 0.0, duration_sec, base_cache_dir)]
+
+        segments = self._merge_tiny_tail(segments, duration_sec)
+        logger.info(
+            "SceneSegmentor: split %.1fs video into %d segments (scene_threshold=%.2f, max_segment=%.0fs)",
+            duration_sec, len(segments), self.scene_threshold, self.segment_duration,
+        )
+        return segments
+
+
 # ---------------------------------------------------------------------------
 # Segmentor registry
 # ---------------------------------------------------------------------------
 
 _SEGMENTOR_REGISTRY: Dict[str, type] = {
     "duration": DurationSegmentor,
+    "scene": SceneSegmentor,
 }
 
 
@@ -166,8 +236,7 @@ def get_segmentor(name: str = "duration", **kwargs) -> BaseSegmentor:
     """Get a segmentor instance by name.
 
     Args:
-        name: Segmentor name (default "duration"). Available: "duration".
-            Future: "scene", "semantic".
+        name: Segmentor name (default "duration"). Available: "duration", "scene".
         **kwargs: Passed to the segmentor constructor.
 
     Returns:

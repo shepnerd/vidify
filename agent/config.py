@@ -122,6 +122,13 @@ def get_default_workflows_config() -> Dict[str, Any]:
             "min_word_count": 50,
             "force_visual": False,
             "prefer_subtitles_over_asr": True,
+            "parallel_asr": {
+                "enabled": False,
+                "max_workers": 4,
+                "segment_duration": 240,
+                "min_audio_duration": 300,
+                "min_segment_duration": 30,
+            },
         },
         "detailed": {
             "use_advanced_skills": True,
@@ -134,6 +141,13 @@ def get_default_workflows_config() -> Dict[str, Any]:
             "force_visual": False,
             "prefer_subtitles_over_asr": True,
             "max_parallel_skills": 3,
+            "parallel_asr": {
+                "enabled": False,
+                "max_workers": 4,
+                "segment_duration": 240,
+                "min_audio_duration": 300,
+                "min_segment_duration": 30,
+            },
         },
         "live_stream": {
             "source": "webcam",

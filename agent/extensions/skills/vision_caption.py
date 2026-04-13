@@ -61,7 +61,7 @@ def caption_frames(frames, model_name: str, base_url: str,
 
             for it in batch:
                 data_url = img_to_data_url(it.path, max_w=max_w, max_h=max_h)
-                content.append({"type": "image", "image": data_url})  # data-url image [2]
+                content.append({"type": "image_url", "image_url": {"url": data_url}})
                 content.append({"type": "text", "text": f"frame_id={it.id}"})
 
             kwargs = {}
