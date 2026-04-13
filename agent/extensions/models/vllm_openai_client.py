@@ -1,6 +1,9 @@
 # models/vllm_openai_client.py
 import os
+import logging
 from typing import Any
+
+import requests
 
 try:
     from openai import OpenAI
@@ -8,6 +11,9 @@ except ImportError:
     OpenAI = Any
 from agent.core.retry import retry_with_backoff
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
+
+logger = logging.getLogger(__name__)
+_MODEL_NAME_CACHE: dict[tuple[str, str], str] = {}
 
 # Strip cluster proxy env vars that corrupt multimodal POST payloads.
 # Must happen before httpx internalises the env (first OpenAI() call).
@@ -31,6 +37,69 @@ def _is_qwen35(model_name: str) -> bool:
         return False
     name = model_name.lower().replace("-", "").replace("_", "")
     return "qwen3.5" in name or "qwen35" in name
+
+
+def _normalize_model_name(model_name: str) -> str:
+    base = os.path.basename((model_name or "").strip()).lower()
+    return "".join(ch for ch in base if ch.isalnum())
+
+
+def resolve_model_name(model_name: str, base_url: str | None,
+                       timeout: float = 10.0) -> str:
+    """Resolve *model_name* against the live vLLM endpoint when possible.
+
+    vLLM may expose the served model as a filesystem path such as
+    ``/data/models/Qwen3.5-9B`` even when callers request ``qwen3.5-9b``.
+    This helper maps common aliases to the actual model ID returned by
+    ``/v1/models``. If the endpoint cannot be queried, the original name is
+    returned unchanged.
+    """
+    if not model_name or not base_url:
+        return model_name
+
+    cache_key = (base_url.rstrip("/"), model_name)
+    cached = _MODEL_NAME_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        url = base_url.rstrip("/")
+        if not url.endswith("/v1"):
+            url += "/v1"
+        resp = requests.get(f"{url}/models", timeout=timeout)
+        resp.raise_for_status()
+        served_models = [m["id"] for m in resp.json().get("data", []) if m.get("id")]
+    except Exception as exc:
+        logger.debug("Could not resolve model name against %s: %s", base_url, exc)
+        return model_name
+
+    if not served_models:
+        return model_name
+
+    if model_name in served_models:
+        resolved = model_name
+    else:
+        requested_norm = _normalize_model_name(model_name)
+        resolved = next(
+            (served for served in served_models
+             if _normalize_model_name(served) == requested_norm),
+            None,
+        )
+        if resolved is None and len(served_models) == 1:
+            resolved = served_models[0]
+            logger.info(
+                "Using served model %s instead of requested %s for endpoint %s",
+                resolved, model_name, base_url,
+            )
+        elif resolved is not None and resolved != model_name:
+            logger.info(
+                "Resolved requested model %s to served model %s for endpoint %s",
+                model_name, resolved, base_url,
+            )
+
+    resolved = resolved or model_name
+    _MODEL_NAME_CACHE[cache_key] = resolved
+    return resolved
 
 
 def make_client(base_url: str = "http://localhost:8000/v1",

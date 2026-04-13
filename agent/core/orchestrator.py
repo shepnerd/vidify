@@ -1,11 +1,6 @@
 # agent/core/orchestrator.py
 import logging
 from agent.extensions.workflows.analyze import wf_analyze
-from agent.extensions.workflows.index import wf_index
-from agent.extensions.workflows.ask import wf_ask
-from agent.extensions.workflows.highlights import wf_highlights
-from agent.extensions.workflows.report import generate_report
-from agent.extensions.workflows.live import wf_live
 from agent.core.hooks import get_hook_manager
 from agent.core.events import event_bus
 
@@ -47,6 +42,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
                               frame_fps=cfg.get("frame_fps"),
                               force_visual=cfg.get("force_visual"))
         elif mode == "index":
+            from agent.extensions.workflows.index import wf_index
             result = wf_index(asset,
                             llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                             embed_base_url=cfg["embed_base_url"], embed_model=cfg["embed_model"],
@@ -55,6 +51,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
                             model_path=cfg.get("model_path"),
                             tokenizer_path=cfg.get("tokenizer_path"))
         elif mode == "ask":
+            from agent.extensions.workflows.ask import wf_ask
             result = wf_ask(asset, cfg["question"],
                           llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                           embed_base_url=cfg["embed_base_url"], embed_model=cfg["embed_model"],
@@ -63,6 +60,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
                           model_path=cfg.get("model_path"),
                           tokenizer_path=cfg.get("tokenizer_path"))
         elif mode == "highlights":
+            from agent.extensions.workflows.highlights import wf_highlights
             result = wf_highlights(asset,
                                  llm_base_url=cfg["llm_base_url"], llm_model=cfg["llm_model"],
                                  max_clips=cfg.get("max_clips", 5),
@@ -71,6 +69,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
                                  model_path=cfg.get("model_path"),
                                  tokenizer_path=cfg.get("tokenizer_path"))
         elif mode == "report":
+            from agent.extensions.workflows.report import generate_report
             result = generate_report(asset,
                                    analysis_type=cfg.get("analysis_type", "brief"),
                                    include_web_search=cfg.get("include_web_search", True),
@@ -81,6 +80,7 @@ def run(asset, mode: str, cfg: dict) -> dict:
                                    google_api_key=cfg.get("google_api_key"),
                                    google_search_engine_id=cfg.get("google_search_engine_id"))
         elif mode == "live":
+            from agent.extensions.workflows.live import wf_live
             result = wf_live(
                 source=cfg.get("stream_source", "webcam"),
                 stream_url=cfg.get("stream_url"),

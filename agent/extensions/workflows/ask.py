@@ -4,7 +4,7 @@ import json
 import logging
 import subprocess
 from openai import OpenAI
-from agent.extensions.models.vllm_openai_client import make_client
+from agent.extensions.models.vllm_openai_client import make_client, resolve_model_name
 from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.skills.persist import load_analysis
 from agent.extensions.skills.rag_faiss import search_faiss
@@ -84,6 +84,9 @@ def wf_ask(asset, question: str,
            direct_model: bool = False,
            model_path: str = None,
            tokenizer_path: str = None) -> dict:
+    if not direct_model:
+        llm_model = resolve_model_name(llm_model, llm_base_url)
+
     analysis = load_analysis(asset.cache_dir)
     rag = (analysis.get("rag") or {}).get("faiss")
     if not rag:

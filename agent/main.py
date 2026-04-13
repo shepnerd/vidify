@@ -3,6 +3,7 @@ import sys
 from agent.extensions.skills.video_io import load_video
 from agent.core.orchestrator import run, normalize_mode
 from agent.config import load_config, get_default_config
+from agent.extensions.models.vllm_openai_client import resolve_model_name
 from agent.core.events import event_bus, EventType
 from agent.core.logging_config import setup_logging
 from agent.core.cli_progress import CLIProgressDisplay
@@ -93,6 +94,8 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, whisp
         cfg['frame_fps'] = fps
     if force_visual:
         cfg['force_visual'] = True
+    if not cfg.get('direct_model'):
+        cfg['llm_model'] = resolve_model_name(cfg.get('llm_model'), cfg.get('llm_base_url'))
 
     if interactive:
         # Interactive mode: prompt for inputs
@@ -183,6 +186,7 @@ def chat(ctx, source_type, uri, cache_root, chat_model, chat_api_base,
 
         base_url = chat_api_base or cfg.get("llm_base_url", "http://localhost:8000/v1")
         model = chat_model or cfg.get("llm_model", "qwen3.5-9b")
+        model = resolve_model_name(model, base_url)
         api_key = chat_api_key or "EMPTY"
 
         chat_client = OpenAI(base_url=base_url, api_key=api_key, timeout=120.0)

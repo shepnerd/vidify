@@ -626,3 +626,58 @@ class TestQwen35Detection:
         assert supports_video("qwen-vl-7b") is True
         assert supports_video("gpt-4o-video") is True
         assert supports_video("llama-3") is False
+
+
+class TestModelResolution:
+    def test_resolve_model_name_matches_path_style_served_id(self, monkeypatch):
+        from agent.extensions.models import vllm_openai_client as client_mod
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"id": "/data/models/Qwen3.5-9B"}]}
+
+        monkeypatch.setattr(
+            client_mod.requests,
+            "get",
+            lambda *args, **kwargs: FakeResponse(),
+        )
+        client_mod._MODEL_NAME_CACHE.clear()
+
+        resolved = client_mod.resolve_model_name("qwen3.5-9b", "http://localhost:8000/v1")
+        assert resolved == "/data/models/Qwen3.5-9B"
+
+    def test_resolve_model_name_falls_back_to_only_served_model(self, monkeypatch):
+        from agent.extensions.models import vllm_openai_client as client_mod
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"id": "/data/models/SomeOtherModel"}]}
+
+        monkeypatch.setattr(
+            client_mod.requests,
+            "get",
+            lambda *args, **kwargs: FakeResponse(),
+        )
+        client_mod._MODEL_NAME_CACHE.clear()
+
+        resolved = client_mod.resolve_model_name("qwen3.5-9b", "http://localhost:8000/v1")
+        assert resolved == "/data/models/SomeOtherModel"
+
+
+class TestBilibiliDownloadHandling:
+    def test_bilibili_subtitle_args_exclude_danmaku(self):
+        from agent.extensions.skills.video_download import _subtitle_args_for_uri
+
+        assert _subtitle_args_for_uri("https://www.bilibili.com/video/BV1x") == [
+            "--sub-langs", "all,-danmaku"
+        ]
+        assert _subtitle_args_for_uri("https://b23.tv/abcd") == [
+            "--sub-langs", "all,-danmaku"
+        ]
+        assert _subtitle_args_for_uri("https://www.youtube.com/watch?v=123") == []

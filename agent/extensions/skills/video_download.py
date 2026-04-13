@@ -8,6 +8,14 @@ def _run(cmd: list[str]) -> None:
     if p.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{p.stderr}")
 
+
+def _subtitle_args_for_uri(uri: str) -> list[str]:
+    # Bilibili exposes "danmaku" XML alongside subtitles. Exclude it so yt-dlp
+    # does not try to run subtitle conversion on a non-subtitle XML payload.
+    if "bilibili.com" in uri or "b23.tv" in uri:
+        return ["--sub-langs", "all,-danmaku"]
+    return []
+
 def parse_info_json(info_json_path: str) -> ContentMetadata | None:
     if not info_json_path or not os.path.exists(info_json_path):
         return None
@@ -91,6 +99,7 @@ def download_generic(uri: str, out_dir: str) -> dict:
             "-o", out_path,
             "--write-info-json",
             "--write-subs", "--write-auto-subs",
+            *_subtitle_args_for_uri(uri),
             "--sub-format", "vtt",
             "--convert-subs", "vtt",
         ]

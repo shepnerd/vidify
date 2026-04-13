@@ -49,6 +49,7 @@ from agent.core.events import event_bus, EventType
 from agent.core.parallel import run_skills_parallel, run_segments_parallel
 from agent.core.segment import split_video_into_segments, merge_segment_results
 from agent.core.segment_worker import process_segment
+from agent.extensions.models.vllm_openai_client import resolve_model_name
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,8 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     if force_visual is None:
         force_visual = wf_cfg.get('force_visual', False)
     llm_base_url = _normalize_base_urls(llm_base_url)
+    if not direct_model:
+        llm_model = resolve_model_name(llm_model, _primary_base_url(llm_base_url))
 
     # --- Step 1: Probe video technical metadata ---
     event_bus.emit_skill_start("Video Probe", progress_pct=5)

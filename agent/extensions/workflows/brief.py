@@ -18,6 +18,7 @@ from agent.core.events import event_bus, EventType
 from agent.core.parallel import run_segments_parallel
 from agent.core.segment import split_video_into_segments, merge_framesets
 from agent.extensions.utils import split_video_segment
+from agent.extensions.models.vllm_openai_client import resolve_model_name
 
 _UNSET = object()  # sentinel to distinguish "not provided" from explicit None
 
@@ -154,6 +155,8 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     if force_visual is None:
         force_visual = wf_cfg.get('force_visual', False)
     llm_base_url = _normalize_base_urls(llm_base_url)
+    if not direct_model:
+        llm_model = resolve_model_name(llm_model, _primary_base_url(llm_base_url))
 
     # --- Step 1: Probe video technical metadata ---
     event_bus.emit_skill_start("Video Probe", progress_pct=5)
