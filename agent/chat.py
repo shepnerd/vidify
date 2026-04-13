@@ -26,6 +26,15 @@ from agent.extensions.skills.persist import load_analysis
 from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 
+# Lazy import — only needed when --direct is used
+TransformersVLClient = None  # set by _ensure_transformers_import()
+
+def _ensure_transformers_import():
+    global TransformersVLClient
+    if TransformersVLClient is None:
+        from agent.extensions.models.transformers_client import TransformersVLClient as _cls
+        TransformersVLClient = _cls
+
 logger = logging.getLogger(__name__)
 
 # ── Intent detection keywords ───────────────────────────────────────────
@@ -64,9 +73,10 @@ class VideoChat:
     """Interactive video Q&A session backed by cached analysis + on-demand skills."""
 
     def __init__(self, asset: VideoAsset, analysis: dict,
-                 chat_client: OpenAI, chat_model: str,
+                 chat_client: OpenAI = None, chat_model: str = "",
                  vision_client: Optional[OpenAI] = None,
-                 vision_model: Optional[str] = None):
+                 vision_model: Optional[str] = None,
+                 direct_client=None):
         self.asset = asset
         self.analysis = analysis
         self.chat_client = chat_client
@@ -74,6 +84,7 @@ class VideoChat:
         # Vision client may differ from chat (e.g. chat=Claude, vision=local vLLM)
         self.vision_client = vision_client or chat_client
         self.vision_model = vision_model or chat_model
+        self.direct_client = direct_client  # TransformersVLClient or None
         self.history: list[dict] = []
         self.visual_cache: dict[str, list[dict]] = {}  # key → frame captions
         self.console = Console(stderr=True)
@@ -268,17 +279,25 @@ class VideoChat:
 
     def _caption_frames(self, frames: list[dict]) -> list[dict]:
         """Caption extracted frames using the vision model."""
-        from agent.extensions.models.vllm_openai_client import chat_with_images
         results = []
         for frame in frames:
             try:
-                caption = chat_with_images(
-                    self.vision_client, self.vision_model,
-                    "Describe what you see in this video frame in 1-2 sentences. "
-                    "Focus on people's expressions, body language, and any text/graphics visible.",
-                    [frame["path"]],
-                    max_tokens=200, temperature=0.2,
-                )
+                if self.direct_client:
+                    caption = self.direct_client.chat_with_images(
+                        "Describe what you see in this video frame in 1-2 sentences. "
+                        "Focus on people's expressions, body language, and any text/graphics visible.",
+                        [frame["path"]],
+                        max_tokens=200, temperature=0.2,
+                    )
+                else:
+                    from agent.extensions.models.vllm_openai_client import chat_with_images
+                    caption = chat_with_images(
+                        self.vision_client, self.vision_model,
+                        "Describe what you see in this video frame in 1-2 sentences. "
+                        "Focus on people's expressions, body language, and any text/graphics visible.",
+                        [frame["path"]],
+                        max_tokens=200, temperature=0.2,
+                    )
                 results.append({
                     "ts": frame["ts"],
                     "ts_fmt": _format_timestamp(frame["ts"]),
@@ -352,6 +371,12 @@ class VideoChat:
             messages.append(turn)
 
         messages.append({"role": "user", "content": question})
+
+        if self.direct_client:
+            try:
+                return self.direct_client.chat(messages, max_tokens=1000, temperature=0.3).strip()
+            except Exception as e:
+                return f"Error calling LLM: {e}"
 
         kwargs = {}
         if _is_qwen35(self.chat_model):

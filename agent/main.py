@@ -106,14 +106,18 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, 
               help='API base for visual analysis (default: same as chat)')
 @click.option('--vision-model', default=None,
               help='Model for visual analysis (default: same as chat)')
+@click.option('--direct', is_flag=True,
+              help='Load model in-process via transformers (no vLLM server needed)')
+@click.option('--model-path', default=None,
+              help='HuggingFace model ID or local path for --direct mode')
+@click.option('--dtype', default='auto', type=click.Choice(['auto', 'bfloat16', 'float16', 'float32']),
+              help='Model dtype for --direct mode')
 @click.pass_context
 def chat(ctx, source_type, uri, cache_root, chat_model, chat_api_base,
-         chat_api_key, vision_api_base, vision_model):
+         chat_api_key, vision_api_base, vision_model, direct, model_path, dtype):
     """Interactive video Q&A — explore a video through conversation."""
     from agent.chat import VideoChat, run_chat_repl
     from agent.extensions.skills.persist import load_analysis
-    from agent.extensions.models.vllm_openai_client import make_client
-    from openai import OpenAI
 
     cfg = ctx.obj['config']
 
@@ -128,31 +132,47 @@ def chat(ctx, source_type, uri, cache_root, chat_model, chat_api_base,
         click.echo("No cached analysis found. Running brief analysis first...", err=True)
         with CLIProgressDisplay(event_bus):
             analysis_result = run(asset, "brief", cfg)
-        # analysis_result is a dict, load it back
         analysis = load_analysis(asset.cache_dir)
 
-    # Set up chat LLM client
-    base_url = chat_api_base or cfg.get("llm_base_url", "http://localhost:8000/v1")
-    model = chat_model or cfg.get("llm_model", "qwen3.5-9b")
-    api_key = chat_api_key or "EMPTY"
+    if direct:
+        # Pure transformers mode — no server required
+        from agent.extensions.models.transformers_client import TransformersVLClient
 
-    chat_client = OpenAI(base_url=base_url, api_key=api_key, timeout=120.0)
+        path = model_path or cfg.get("model_path") or "Qwen/Qwen2.5-VL-7B-Instruct"
+        click.echo(f"Loading model in-process: {path} (dtype={dtype})...", err=True)
+        direct_client = TransformersVLClient(path, dtype=dtype)
 
-    # Set up vision client (may differ from chat client)
-    if vision_api_base:
-        vis_client = make_client(vision_api_base)
+        session = VideoChat(
+            asset=asset,
+            analysis=analysis,
+            direct_client=direct_client,
+        )
     else:
-        vis_client = chat_client
-    vis_model = vision_model or model
+        # Server mode — requires running vLLM
+        from agent.extensions.models.vllm_openai_client import make_client
+        from openai import OpenAI
 
-    session = VideoChat(
-        asset=asset,
-        analysis=analysis,
-        chat_client=chat_client,
-        chat_model=model,
-        vision_client=vis_client,
-        vision_model=vis_model,
-    )
+        base_url = chat_api_base or cfg.get("llm_base_url", "http://localhost:8000/v1")
+        model = chat_model or cfg.get("llm_model", "qwen3.5-9b")
+        api_key = chat_api_key or "EMPTY"
+
+        chat_client = OpenAI(base_url=base_url, api_key=api_key, timeout=120.0)
+
+        if vision_api_base:
+            vis_client = make_client(vision_api_base)
+        else:
+            vis_client = chat_client
+        vis_model = vision_model or model
+
+        session = VideoChat(
+            asset=asset,
+            analysis=analysis,
+            chat_client=chat_client,
+            chat_model=model,
+            vision_client=vis_client,
+            vision_model=vis_model,
+        )
+
     run_chat_repl(session)
 
 
