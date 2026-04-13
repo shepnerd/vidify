@@ -3,14 +3,20 @@ from typing import List, Dict, Any
 _translators = {}
 
 def _get_translator(source_lang: str, target_lang: str):
-    """Lazy-init translation pipeline for a language pair (HF-managed)."""
+    """Lazy-init translation pipeline for a language pair (local cache or HF)."""
     key = f"{source_lang}-{target_lang}"
     if key not in _translators:
         from transformers import pipeline
+        from agent.config import get_config
+        cfg = get_config()
         model_map = {
             "en-zh": "Helsinki-NLP/opus-mt-en-zh",
             "zh-en": "Helsinki-NLP/opus-mt-zh-en",
         }
+        # Config overrides the default for en-zh
+        cfg_model = cfg.get("translation", {}).get("model")
+        if cfg_model:
+            model_map["en-zh"] = cfg_model
         if key not in model_map:
             raise ValueError(f"Unsupported language pair: {source_lang} to {target_lang}")
         _translators[key] = pipeline("translation", model=model_map[key])

@@ -33,10 +33,10 @@ object_detection:
   conf_threshold: 0.5
 
 emotion_analysis:
-  audio_model: superb/wav2vec2-base-superb-er    # HF-managed
+  audio_model: models/wav2vec2-base-superb-er     # local cache (or HF: superb/wav2vec2-base-superb-er)
   visual_model: fer
 
 translation:
-  model: Helsinki-NLP/opus-mt-en-zh               # HF-managed
+  model: models/opus-mt-en-zh                     # local cache (or HF: Helsinki-NLP/opus-mt-en-zh)
   source_lang: en
   target_lang: zh

@@ -19,6 +19,11 @@ def get_model_path(subpath: str) -> str:
         return full
     return subpath
 
+def get_config() -> Dict[str, Any]:
+    """Return the merged models config (used by skills for model paths)."""
+    return load_models_config()
+
+
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:

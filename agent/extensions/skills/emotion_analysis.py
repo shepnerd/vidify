@@ -8,12 +8,16 @@ _model = None
 _emotion_detector = None
 
 def _get_audio_model():
-    """Lazy-init Wav2Vec2 emotion model (HF-managed)."""
+    """Lazy-init Wav2Vec2 emotion model (local cache or HF)."""
     global _processor, _model
     if _processor is None:
         from transformers import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
-        _processor = Wav2Vec2Processor.from_pretrained("superb/wav2vec2-base-superb-er")
-        _model = Wav2Vec2ForSequenceClassification.from_pretrained("superb/wav2vec2-base-superb-er")
+        from agent.config import get_config
+        cfg = get_config()
+        model_id = (cfg.get("emotion_analysis", {}).get("audio_model", None)
+                    or "superb/wav2vec2-base-superb-er")
+        _processor = Wav2Vec2Processor.from_pretrained(model_id)
+        _model = Wav2Vec2ForSequenceClassification.from_pretrained(model_id)
     return _processor, _model
 
 def _get_visual_detector():
