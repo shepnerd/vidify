@@ -19,7 +19,7 @@ python setup.py install
 
 ### Run CLI
 ```bash
-python agent/main.py analyze <source_type> <uri> [--mode quick|detailed|highlights|index|ask|report] [--cache-root ./cache] [--max-frames 128]
+python -m agent.main analyze <source_type> <uri> [--mode brief|quick|detailed|highlights|index|ask|report|live] [--cache-root ./cache] [--max-frames 128]
 # source_type: youtube, url, local
 ```
 
@@ -58,7 +58,7 @@ bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4
 
 # Or start step by step:
 bash scripts/serving_qwen3_5_ascend.sh &         # vLLM on NPU (Qwen3.5-9B, TP=4)
-python agent/main.py chat local <video> --cache-root ./cache
+python -m agent.main chat local <video> --cache-root ./cache
 
 # Legacy: Qwen2.5-VL-7B (for older images / fallback)
 job-run vidify -f ./infra/d-cluster/job-vidify.yaml

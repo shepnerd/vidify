@@ -1,6 +1,11 @@
 # models/vllm_openai_client.py
 import os
-from openai import OpenAI
+from typing import Any
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = Any
 from agent.core.retry import retry_with_backoff
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 
@@ -36,6 +41,8 @@ def make_client(base_url: str = "http://localhost:8000/v1",
     *timeout* guards against MLLM requests on long videos hanging
     indefinitely (default 120 s).
     """
+    if OpenAI is Any:
+        raise ImportError("openai package is required to create a vLLM client")
     return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
 
 

@@ -25,6 +25,9 @@ VIDEO_PATH=""
 SERVER_ONLY=false
 VLLM_PORT=8000
 MODE="detailed"
+ASCEND_CONFIG="/tmp/vidify_ascend_config.yaml"
+
+trap 'rm -f "$ASCEND_CONFIG"' EXIT
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -101,15 +104,23 @@ snapshot_download('Qwen/Qwen3.5-9B', local_dir='$MODEL_PATH')
 fi
 ok "Model: ${BOLD}${MODEL_PATH}${NC}"
 
-# ── Step 4: Verify local models (emotion, translation, ASR) ───────────────
+# ── Step 4: Verify local models (transcript-first workflow) ───────────────
 info "Checking local skill models..."
-for model_dir in models/wav2vec2-base-superb-er models/opus-mt-en-zh models/whisper-small; do
+for model_dir in models/wav2vec2-base-superb-er models/opus-mt-en-zh; do
     if [[ -d "$model_dir" ]]; then
-        ok "  $(basename $model_dir) ✓"
+        ok "  $(basename "$model_dir") ✓"
     else
-        err "  $(basename $model_dir) MISSING — emotion/translation may fail"
+        err "  $(basename "$model_dir") MISSING — related skill may degrade"
     fi
 done
+
+WHISPER_MODEL=""
+if [[ -d models/whisper-small ]]; then
+    WHISPER_MODEL="small"
+    ok "  whisper-small ✓"
+else
+    info "  whisper-small not found — subtitles/meta stay primary, offline ASR fallback disabled"
+fi
 
 # ── Step 5: Start vLLM ────────────────────────────────────────────────────
 API_BASE="http://localhost:${VLLM_PORT}/v1"
@@ -148,6 +159,18 @@ else
     ok "vLLM ready after ${WAITED}s — ${BOLD}${SERVED_MODEL}${NC}"
 fi
 
+cat > "${ASCEND_CONFIG}" <<YAML
+llm_base_url: "${API_BASE}"
+llm_model: "${SERVED_MODEL}"
+whisper_model: "${WHISPER_MODEL}"
+YAML
+
+info "Transcript-first mode enabled: subtitles/local ASR first, visual fallback only when needed"
+info "Using served model id: ${SERVED_MODEL}"
+if [[ -n "${WHISPER_MODEL}" ]]; then
+    info "Using offline Whisper model: ${WHISPER_MODEL}"
+fi
+
 if $SERVER_ONLY; then
     ok "Server-only mode. vLLM running on port ${VLLM_PORT}."
     echo "  tail -f /tmp/vllm.log"
@@ -163,7 +186,7 @@ echo ""
 
 START_TIME=$(date +%s)
 
-python3 agent/main.py analyze local "$VIDEO_PATH" \
+python3 agent/main.py --config "${ASCEND_CONFIG}" analyze local "$VIDEO_PATH" \
     --mode "$MODE" \
     --cache-root ./cache \
     2>&1 | tee /tmp/analysis.log

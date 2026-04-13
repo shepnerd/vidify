@@ -2,7 +2,15 @@ import os
 # Disable OneDNN/MKL-DNN to avoid potential conflicts with PaddlePaddle
 os.environ["FLAGS_use_mkldnn"] = "0"
 
-import cv2
+try:
+    import cv2
+except ImportError:
+    class _MissingCV2:
+        @staticmethod
+        def imread(_path):
+            return None
+
+    cv2 = _MissingCV2()
 import json
 import subprocess
 import sys

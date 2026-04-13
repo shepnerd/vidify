@@ -41,7 +41,7 @@ curl -X POST http://localhost:9000/analyze \
 |-------|------|---------|-------------|
 | `source_type` | `youtube\|url\|local` | required | Video source type |
 | `uri` | string | required | YouTube URL, HTTP URL, or local path |
-| `mode` | `quick\|detailed` | `detailed` | Analysis depth |
+| `mode` | `brief\|quick\|detailed` | `detailed` | Analysis depth (`quick` is a legacy alias for `brief`) |
 | `cache_root` | string | `./cache` | Cache directory |
 | `llm_base_url` | string | `http://localhost:8000/v1` | vLLM endpoint |
 | `llm_model` | string | `qwen-vl` | Model name |
@@ -144,7 +144,7 @@ Upload a local video file through the web interface.
 ## CLI
 
 ```bash
-python agent/main.py SOURCE_TYPE URI [OPTIONS]
+python -m agent.main analyze SOURCE_TYPE URI [OPTIONS]
 ```
 
 ### Arguments
@@ -173,19 +173,19 @@ python agent/main.py SOURCE_TYPE URI [OPTIONS]
 
 ```bash
 # Detailed analysis of a YouTube video
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." --mode detailed
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 
 # Brief analysis with web search
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." --mode brief --include-web-search
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode brief --include-web-search
 
 # Question-answering (runs index + ask)
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." --mode ask \
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode ask \
     --question "What are the main arguments?"
 
 # Local video with direct model
-python agent/main.py local /path/to/video.mp4 --mode detailed --direct-model \
+python -m agent.main analyze local /path/to/video.mp4 --mode detailed --direct-model \
     --model-path /path/to/qwen-vl
 
 # Generate report
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." --mode report
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode report
 ```

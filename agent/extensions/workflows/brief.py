@@ -5,7 +5,7 @@ from agent.extensions.skills.video_probe import probe_video
 from agent.extensions.skills.frame_sampler import sample_frames
 from agent.extensions.skills.vision_caption import caption_frames, supports_video, caption_video_as_frameset
 from agent.extensions.skills.audio_extract import extract_audio
-from agent.extensions.skills.asr import transcribe
+from agent.extensions.skills.asr import transcribe, has_local_whisper_model
 from agent.extensions.skills.subtitle_parser import load_best_subtitle
 from agent.extensions.skills.content_sufficiency import assess_sufficiency
 from agent.extensions.skills.timeline_builder import build_timeline
@@ -21,6 +21,10 @@ from agent.core.segment import split_video_into_segments, merge_framesets
 _UNSET = object()  # sentinel to distinguish "not provided" from explicit None
 
 logger = logging.getLogger(__name__)
+
+
+def _is_frameset_dump(value) -> bool:
+    return isinstance(value, dict) and "items" in value and "strategy" in value
 
 
 def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
@@ -95,7 +99,23 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     if transcript is None and meta.has_audio and whisper_model:
         logger.info("No subtitles available, running ASR with Whisper (%s)...", whisper_model)
         audio = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
-        transcript = transcribe(audio, os.path.join(asset.cache_dir, "asr.json"), model_size=whisper_model)
+        try:
+            transcript = transcribe(
+                audio,
+                os.path.join(asset.cache_dir, "asr.json"),
+                model_size=whisper_model,
+            )
+        except Exception as e:
+            local_only = has_local_whisper_model(whisper_model)
+            if local_only:
+                logger.warning("ASR failed with local Whisper model %s: %s", whisper_model, e)
+            else:
+                logger.warning(
+                    "ASR unavailable for Whisper %s; continuing transcript-first without ASR. "
+                    "Place models/whisper-%s locally to enable offline ASR. Error: %s",
+                    whisper_model, whisper_model, e,
+                )
+            transcript = None
 
     if transcript is None:
         transcript = Transcript(segments=[], language=None)
@@ -159,7 +179,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
                     max_workers=seg_cfg.get('max_workers', 4),
                 )
                 seg_frames = [
-                    FrameSet(**out["frames"]) if isinstance(out.get("frames"), dict)
+                    FrameSet(**out["frames"]) if _is_frameset_dump(out.get("frames"))
                     else FrameSet(items=[], strategy=strategy)
                     for out in seg_outputs
                 ]

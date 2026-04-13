@@ -18,8 +18,8 @@ pytest tests/
 ```
 Run the CLI locally:
 ```bash
-python agent/main.py analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
-python agent/main.py chat local media/example.mp4
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
+python -m agent.main chat local media/example.mp4
 ```
 Start the API and web UI:
 ```bash

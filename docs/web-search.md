@@ -41,11 +41,11 @@ No setup required. When Google is unreachable, the system automatically falls ba
 
 ```bash
 # Brief analysis with web search
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." \
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." \
     --mode brief --include-web-search
 
 # Report with web search and explicit credentials
-python agent/main.py youtube "https://www.youtube.com/watch?v=..." \
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." \
     --mode report --include-web-search \
     --google-api-key "your_key" --google-search-engine-id "your_id"
 ```

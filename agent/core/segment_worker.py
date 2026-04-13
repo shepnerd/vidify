@@ -21,7 +21,11 @@ from agent.core.skill_guard import skill_guard
 from agent.extensions.skills.frame_sampler import sample_frames
 from agent.extensions.skills.vision_caption import caption_frames, supports_video
 from agent.extensions.skills.ocr import extract_text_from_video_frames
-from agent.extensions.skills.emotion_analysis import analyze_emotions
+try:
+    from agent.extensions.skills.emotion_analysis import analyze_emotions
+except ImportError:
+    def analyze_emotions(*args, **kwargs):
+        raise ImportError("emotion analysis dependencies are not installed")
 
 try:
     from agent.extensions.skills.object_detection import detect_objects_in_video_frames
@@ -29,6 +33,10 @@ except ImportError:
     detect_objects_in_video_frames = None
 
 logger = logging.getLogger(__name__)
+
+
+def _is_frameset_dump(value) -> bool:
+    return isinstance(value, dict) and "items" in value and "strategy" in value
 
 
 def _run_captioning(frames_dump, llm_model, llm_base_url, direct_model, model_path, tokenizer_path):
@@ -131,7 +139,7 @@ def process_segment(
 
     # Use captioned frames if captioning succeeded, else original frames
     captioned = parallel_results.get("captioning")
-    if captioned is not None:
+    if _is_frameset_dump(captioned):
         frames_out = captioned  # already a dict from model_dump()
     else:
         frames_out = frames.model_dump()

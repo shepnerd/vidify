@@ -1,11 +1,14 @@
 import json, math, subprocess
-from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
-from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 from agent.extensions.utils import (
     get_video_duration, split_video_segment, make_video_content, img_to_data_url,
 )
+
+
+def _make_direct_client(model_path: str = None, tokenizer_path: str = None):
+    from agent.extensions.models.direct_model_loader import make_direct_client
+    return make_direct_client(model_path, tokenizer_path)
 
 def supports_video(model_name: str) -> bool:
     name = model_name.lower()
@@ -20,12 +23,12 @@ def caption_frames(frames, model_name: str, base_url: str,
     return: FrameSet with FrameItem.caption filled
     """
     if direct_model:
-        client = make_direct_client(model_path, tokenizer_path)
+        client = _make_direct_client(model_path, tokenizer_path)
     else:
         client = make_client(base_url)
 
     if direct_model:
-        client = make_direct_client(model_path, tokenizer_path)
+        client = _make_direct_client(model_path, tokenizer_path)
         # For direct model, process one by one
         batch_size = 1
     else:
@@ -103,7 +106,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
     if duration <= max_duration:
         # Direct process
         if direct_model:
-            client = make_direct_client(model_path, tokenizer_path)
+            client = _make_direct_client(model_path, tokenizer_path)
             prompt = "请生成视频的中文描述。"
             text = client.chat_with_images(model_name, prompt, [f"file://{video_path}"], max_tokens=500, temperature=0.2)
         else:
@@ -134,7 +137,7 @@ def caption_video(video_path: str, model_name: str, base_url: str, max_duration:
             # Process segment
             prev_summary = summaries[-1] if summaries else ""
             if direct_model:
-                client = make_direct_client(model_path, tokenizer_path)
+                client = _make_direct_client(model_path, tokenizer_path)
                 prompt = f"请生成这段视频的中文描述。{f' 前面的总结：{prev_summary}' if prev_summary else ''}"
                 text = client.chat_with_images(model_name, prompt, [f"file://{segment_path}"], max_tokens=300, temperature=0.2)
             else:

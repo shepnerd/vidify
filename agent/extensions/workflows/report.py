@@ -40,7 +40,7 @@ def generate_report(asset: VideoAsset, analysis_type: str = "brief",
     # Extract key information
     video_info = analysis.get("video", {})
     timeline = analysis.get("timeline", "")
-    frames = analysis.get("frames", [])
+    frame_items = _get_frame_items(analysis.get("frames"))
     asr = analysis.get("asr", {})
     
     # Prepare search query based on video content
@@ -62,7 +62,7 @@ def generate_report(asset: VideoAsset, analysis_type: str = "brief",
         "summary": {
             "duration": video_info.get("duration", 0),
             "resolution": f"{video_info.get('width', 0)}x{video_info.get('height', 0)}",
-            "frame_count": len(frames) if isinstance(frames, list) else 0,
+            "frame_count": len(frame_items),
             "has_transcript": bool(asr and asr.get("segments")),
             "language": asr.get("language") if asr else None
         },
@@ -71,7 +71,7 @@ def generate_report(asset: VideoAsset, analysis_type: str = "brief",
             {
                 "timestamp": frame.get("ts", 0),
                 "description": frame.get("caption", "")
-            } for frame in (frames[:10] if isinstance(frames, list) else [])
+            } for frame in frame_items[:10]
         ],
         "transcript_highlights": extract_transcript_highlights(asr) if asr else [],
         "web_search_insights": web_search_results,
@@ -86,6 +86,15 @@ def generate_report(asset: VideoAsset, analysis_type: str = "brief",
         json.dump(report, f, ensure_ascii=False, indent=2)
     
     return report
+
+def _get_frame_items(frames: Any) -> List[Dict[str, Any]]:
+    """Normalize stored FrameSet payloads into a flat list of frame dicts."""
+    if isinstance(frames, dict):
+        items = frames.get("items", [])
+        return items if isinstance(items, list) else []
+    if isinstance(frames, list):
+        return frames
+    return []
 
 def extract_transcript_highlights(asr: Dict) -> List[Dict]:
     """Extract key highlights from transcript."""
@@ -106,12 +115,13 @@ def extract_transcript_highlights(asr: Dict) -> List[Dict]:
 def generate_recommendations(analysis: Dict, web_search: Dict) -> List[str]:
     """Generate recommendations based on analysis and web search."""
     recommendations = []
+    frame_count = len(_get_frame_items(analysis.get("frames")))
     
     # Basic recommendations based on analysis
     if not analysis.get("asr"):
         recommendations.append("Consider adding audio transcription for better understanding")
     
-    if len(analysis.get("frames", [])) < 50:
+    if frame_count < 50:
         recommendations.append("Increase frame sampling for more detailed visual analysis")
     
     # Add web search based recommendations

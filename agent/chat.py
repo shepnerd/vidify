@@ -2,8 +2,8 @@
 """Interactive video chat CLI — explore a video through conversation.
 
 Usage:
-    python agent/main.py chat youtube "https://youtu.be/xxx"
-    python agent/main.py chat local video.mp4 --chat-api-base https://api.openai.com/v1 --chat-model gpt-4o
+    python -m agent.main chat youtube "https://youtu.be/xxx"
+    python -m agent.main chat local video.mp4 --chat-api-base https://api.openai.com/v1 --chat-model gpt-4o
 """
 import json
 import logging

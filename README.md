@@ -91,10 +91,10 @@ TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
 
 **CLI:**
 ```bash
-python agent/main.py analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 
 # With structured JSON logging
-python agent/main.py --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
+python -m agent.main --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 ```
 
 **REST API:**
@@ -117,33 +117,35 @@ Open `http://localhost:9000` after starting the server.
 
 ## Workflow Modes
 
+`brief` is the canonical lightweight mode. `quick` is still accepted as a legacy alias in the CLI and API.
+
 ```bash
-# Quick summary (ASR-first, skips visuals if transcript is sufficient)
-python agent/main.py youtube URL --mode brief
+# Brief summary (ASR-first, skips visuals if transcript is sufficient)
+python -m agent.main analyze youtube URL --mode brief
 
 # Full analysis (OCR, emotions, objects, ASR, translation)
-python agent/main.py youtube URL --mode detailed
+python -m agent.main analyze youtube URL --mode detailed
 
 # Force visual processing even when transcript is sufficient
-python agent/main.py youtube URL --mode brief --force-visual
+python -m agent.main analyze youtube URL --mode brief --force-visual
 
 # Build search index, then ask questions
-python agent/main.py youtube URL --mode ask --question "What are the key conclusions?"
+python -m agent.main analyze youtube URL --mode ask --question "What are the key conclusions?"
 
 # Ask a visual question (triggers targeted frame lookup)
-python agent/main.py youtube URL --mode ask --question "What equation is shown on the board at 5:30?"
+python -m agent.main analyze youtube URL --mode ask --question "What equation is shown on the board at 5:30?"
 
 # Export highlight clips
-python agent/main.py youtube URL --mode highlights
+python -m agent.main analyze youtube URL --mode highlights
 
 # Generate report with web search
-python agent/main.py youtube URL --mode report --include-web-search
+python -m agent.main analyze youtube URL --mode report --include-web-search
 
 # Live stream from webcam
-python agent/main.py local webcam --mode live
+python -m agent.main analyze local webcam --mode live
 
 # Live stream from RTMP/HTTP URL
-python agent/main.py local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
+python -m agent.main analyze local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
 ```
 
 ### Processing Flow
@@ -236,14 +238,14 @@ The streaming pipeline uses a three-module design:
 
 ```bash
 # Live stream from webcam (default)
-python agent/main.py analyze local webcam --mode live
+python -m agent.main analyze local webcam --mode live
 
 # RTMP stream
-python agent/main.py analyze local stream --mode live \
+python -m agent.main analyze local stream --mode live \
   --stream-source stream --stream-url rtmp://host/live/key
 
 # HTTP stream (e.g., IP camera)
-python agent/main.py analyze local stream --mode live \
+python -m agent.main analyze local stream --mode live \
   --stream-source stream --stream-url http://camera-ip/video
 ```
 
@@ -607,7 +609,7 @@ bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4
 
 # Or start server only, then chat separately:
 bash scripts/start_vidify_ascend.sh --server-only
-python agent/main.py chat local /data/videos/myvideo.mp4 --cache-root ./cache
+python -m agent.main chat local /data/videos/myvideo.mp4 --cache-root ./cache
 ```
 
 ### Quick Start (Qwen2.5-VL — Legacy/Fallback)
@@ -629,6 +631,8 @@ bash scripts/run_test_ascend.sh --video media/taste_in_china_s1e1.mp4
 bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1   # reuse existing endpoint
 bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
 ```
+
+On Ascend, the repo keeps its transcript-first design: subtitles and local ASR are attempted before visual captioning. If `models/whisper-small` is not present in the pod, the Ascend helper scripts now disable Whisper automatically and fall back to meta/subtitles first, then visual analysis only when sufficiency requires it.
 
 ### NPU Serving Scripts
 
@@ -663,6 +667,8 @@ D-cluster nodes **cannot reach the public internet**. For model/package download
 - **HuggingFace models**: Set `HF_ENDPOINT=https://hf-mirror.com` before downloading
 - **PyPI packages**: Use internal proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
 - **Whisper/wav2vec2 models**: Must be pre-downloaded on a node with internet access and copied to the pod, or use `whisper_model: null` in `config.yaml` to skip ASR
+
+The Ascend helper scripts handle this automatically: they detect whether `models/whisper-small` is available locally, set `llm_model` to the actual served vLLM model id, and avoid attempting broken public-network Whisper downloads inside the pod.
 
 ### Rebuilding the Image
 

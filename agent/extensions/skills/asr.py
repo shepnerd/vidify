@@ -1,4 +1,3 @@
-# agent/skills/asr.py
 import os
 import torch
 import numpy as np
@@ -14,6 +13,21 @@ logger = logging.getLogger(__name__)
 _processor = None
 _model = None
 _device = None
+
+
+def resolve_whisper_model(model_size: str = "small") -> str:
+    """Resolve a Whisper model identifier to a local path or HF repo id."""
+    from agent.config import get_model_path
+
+    model_id = get_model_path(f"whisper-{model_size}")
+    if os.path.isdir(model_id):
+        return model_id
+    return f"openai/whisper-{model_size}"
+
+
+def has_local_whisper_model(model_size: str = "small") -> bool:
+    """Return True when the requested Whisper model exists under models/."""
+    return os.path.isdir(resolve_whisper_model(model_size))
 
 
 def _detect_device():
@@ -36,13 +50,7 @@ def _get_model(model_size: str = "small"):
         return _processor, _model, _device
 
     _device = _detect_device()
-
-    # Try local model path first (for air-gapped clusters)
-    from agent.config import get_model_path
-    model_id = get_model_path(f"whisper-{model_size}")
-    # If local path doesn't exist, fall back to HF repo ID
-    if not os.path.isdir(model_id):
-        model_id = f"openai/whisper-{model_size}"
+    model_id = resolve_whisper_model(model_size)
 
     logger.info("Loading Whisper model %s on %s", model_id, _device)
     _processor = WhisperProcessor.from_pretrained(model_id)

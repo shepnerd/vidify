@@ -335,10 +335,15 @@ def merge_segment_results(
     Returns:
         Dict with merged 'frames', 'ocr', 'objects', 'emotions'.
     """
-    seg_frames = [
-        FrameSet(**out["frames"]) if isinstance(out.get("frames"), dict) else out.get("frames", FrameSet(items=[], strategy=FrameStrategy(type="scene", params={})))
-        for out in segment_outputs
-    ]
+    seg_frames = []
+    for out in segment_outputs:
+        frames = out.get("frames")
+        if isinstance(frames, dict) and "items" in frames and "strategy" in frames:
+            seg_frames.append(FrameSet(**frames))
+        elif isinstance(frames, FrameSet):
+            seg_frames.append(frames)
+        else:
+            seg_frames.append(FrameSet(items=[], strategy=FrameStrategy(type="scene", params={})))
     seg_ocr = [out.get("ocr", {}) for out in segment_outputs]
     seg_objects = [out.get("objects", {}) for out in segment_outputs]
     seg_emotions = [out.get("emotions", {}) for out in segment_outputs]

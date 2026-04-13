@@ -1,7 +1,7 @@
 import click
 import sys
 from agent.extensions.skills.video_io import load_video
-from agent.core.orchestrator import run
+from agent.core.orchestrator import run, normalize_mode
 from agent.config import load_config, get_default_config
 from agent.core.events import event_bus, EventType
 from agent.core.logging_config import setup_logging
@@ -39,20 +39,30 @@ def cli(ctx, config, log_format):
 @cli.command()
 @click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
 @click.argument('uri')
-@click.option('--mode', default='detailed', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'live']))
+@click.option('--mode', default='detailed', type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'live']))
 @click.option('--cache-root', default='./cache')
 @click.option('--question', default=None)
 @click.option('--max-frames', type=int, default=128)
+@click.option('--whisper-model', default=None, help='Whisper model size override')
 @click.option('--fps', type=float, default=None,
               help='Frame sampling rate (frames per second). Overrides scene-based sampling.')
 @click.option('--force-visual', is_flag=True, help='Force visual processing even when transcript is sufficient')
+@click.option('--include-web-search', is_flag=True, help='Enhance results with web search')
+@click.option('--google-api-key', default=None, help='Google Custom Search API key')
+@click.option('--google-search-engine-id', default=None, help='Google Custom Search Engine ID')
+@click.option('--direct-model', is_flag=True, help='Load the model in-process via transformers')
+@click.option('--model-path', default=None, help='Model path or HuggingFace model ID for direct mode')
+@click.option('--tokenizer-path', default=None, help='Tokenizer path override for direct mode')
 @click.option('--stream-source', default='webcam', type=click.Choice(['webcam', 'stream']),
               help='Source for live mode')
 @click.option('--stream-url', default=None, help='RTMP/HTTP URL for live stream mode')
 @click.option('--interactive', is_flag=True, help='Interactive mode')
 @click.pass_context
-def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, force_visual, stream_source, stream_url, interactive):
+def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, whisper_model, fps,
+            force_visual, include_web_search, google_api_key, google_search_engine_id,
+            direct_model, model_path, tokenizer_path, stream_source, stream_url, interactive):
     """Analyze a video."""
+    mode = normalize_mode(mode)
     cfg = ctx.obj['config']
     cfg.update({
         'source_type': source_type,
@@ -64,6 +74,20 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, 
         'stream_source': stream_source,
         'stream_url': stream_url,
     })
+    if whisper_model is not None:
+        cfg['whisper_model'] = whisper_model
+    if include_web_search:
+        cfg['include_web_search'] = True
+    if google_api_key:
+        cfg['google_api_key'] = google_api_key
+    if google_search_engine_id:
+        cfg['google_search_engine_id'] = google_search_engine_id
+    if direct_model:
+        cfg['direct_model'] = True
+    if model_path:
+        cfg['model_path'] = model_path
+    if tokenizer_path:
+        cfg['tokenizer_path'] = tokenizer_path
     if fps is not None:
         cfg['frame_strategy'] = 'fps'
         cfg['frame_fps'] = fps
@@ -73,7 +97,12 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, fps, 
     if interactive:
         # Interactive mode: prompt for inputs
         cfg['uri'] = click.prompt('Video URI', default=cfg['uri'])
-        cfg['mode'] = click.prompt('Mode', type=click.Choice(['quick', 'detailed', 'highlights', 'index', 'ask', 'report']), default=cfg['mode'])
+        cfg['mode'] = normalize_mode(click.prompt(
+            'Mode',
+            type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report']),
+            default=cfg['mode'],
+        ))
+        mode = cfg['mode']
 
     # Choose display mode: rich progress for TTY, plain text for JSON/pipe
     use_rich = (ctx.obj.get('log_format', 'text') != 'json'

@@ -13,14 +13,30 @@ from agent.extensions.skills.video_probe import probe_video
 from agent.extensions.skills.frame_sampler import sample_frames
 from agent.extensions.skills.vision_caption import caption_frames, supports_video, caption_video_as_frameset
 from agent.extensions.skills.audio_extract import extract_audio
-from agent.extensions.skills.asr import transcribe
 from agent.extensions.skills.subtitle_parser import load_best_subtitle
 from agent.extensions.skills.content_sufficiency import assess_sufficiency
-from agent.extensions.skills.timeline_builder import build_timeline
 from agent.extensions.skills.persist import save_analysis
 from agent.extensions.skills.web_search import deep_search_enhance
 from agent.extensions.skills.ocr import extract_text_from_video_frames
-from agent.extensions.skills.emotion_analysis import analyze_emotions
+try:
+    from agent.extensions.skills.timeline_builder import build_timeline
+except ImportError:
+    def build_timeline(*args, **kwargs):
+        raise ImportError("timeline builder dependencies are not installed")
+
+try:
+    from agent.extensions.skills.asr import transcribe, has_local_whisper_model
+except ImportError:
+    def transcribe(*args, **kwargs):
+        raise ImportError("ASR dependencies are not installed")
+    def has_local_whisper_model(*args, **kwargs):
+        return False
+
+try:
+    from agent.extensions.skills.emotion_analysis import analyze_emotions
+except ImportError:
+    def analyze_emotions(*args, **kwargs):
+        raise ImportError("emotion analysis dependencies are not installed")
 try:
     from agent.extensions.skills.object_detection import detect_objects_in_video_frames
 except ImportError:
@@ -37,6 +53,10 @@ from agent.core.segment_worker import process_segment
 logger = logging.getLogger(__name__)
 
 _UNSET = object()  # sentinel to distinguish "not provided" from explicit None
+
+
+def _is_frameset_dump(value) -> bool:
+    return isinstance(value, dict) and "items" in value and "strategy" in value
 
 def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                 max_frames: int = None,
@@ -220,8 +240,23 @@ def _extract_transcript(asset, meta, whisper_model):
         audio_path = extract_audio(asset, os.path.join(asset.cache_dir, "audio.wav"))
         if transcript is None and whisper_model:
             logger.info("No subtitles, running ASR with Whisper (%s)...", whisper_model)
-            transcript = transcribe(audio_path, os.path.join(asset.cache_dir, "asr.json"),
-                                    model_size=whisper_model)
+            try:
+                transcript = transcribe(
+                    audio_path,
+                    os.path.join(asset.cache_dir, "asr.json"),
+                    model_size=whisper_model,
+                )
+            except Exception as e:
+                local_only = has_local_whisper_model(whisper_model)
+                if local_only:
+                    logger.warning("ASR failed with local Whisper model %s: %s", whisper_model, e)
+                else:
+                    logger.warning(
+                        "ASR unavailable for Whisper %s; continuing transcript-first without ASR. "
+                        "Place models/whisper-%s locally to enable offline ASR. Error: %s",
+                        whisper_model, whisper_model, e,
+                    )
+                transcript = None
 
     if transcript is None:
         transcript = Transcript(segments=[], language=None)
@@ -293,7 +328,7 @@ def _run_sequential(asset, frames, sufficiency, llm_model, llm_base_url,
     if captioned is not None:
         if isinstance(captioned, FrameSet):
             frames = captioned
-        elif isinstance(captioned, dict):
+        elif _is_frameset_dump(captioned):
             frames = FrameSet(**captioned)
 
     ocr_results = parallel_results.get("ocr", {})

@@ -12,7 +12,14 @@ from agent.core.events import event_bus
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def normalize_mode(mode: str) -> str:
+    """Map legacy/public aliases to workflow names."""
+    if mode == "quick":
+        return "brief"
+    return mode
+
 def run(asset, mode: str, cfg: dict) -> dict:
+    mode = normalize_mode(mode)
     hooks = get_hook_manager()
     hook_env = {
         "VIDEO_URI": getattr(asset, "id", str(getattr(asset.source, "uri", ""))),

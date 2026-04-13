@@ -145,6 +145,14 @@ assert v >= (4, 51), f'transformers {transformers.__version__} too old, need >= 
         "transformers>=4.51" 2>/dev/null || true
 }
 
+WHISPER_MODEL=""
+if [[ -d models/whisper-small ]]; then
+    WHISPER_MODEL="small"
+    ok "Offline ASR model available: ${BOLD}whisper-small${NC}"
+else
+    info "Offline ASR model not found; chat will stay transcript/meta-first and skip Whisper fallback"
+fi
+
 # ── Step 4: Start vLLM server ───────────────────────────────────────────────
 # Check if vLLM is already running
 if curl -sf "http://localhost:${VLLM_PORT}/v1/models" >/dev/null 2>&1; then
@@ -197,7 +205,13 @@ API_BASE="http://localhost:${VLLM_PORT}/v1"
 cat > config.yaml <<YAML
 llm_base_url: "${API_BASE}"
 llm_model: "${SERVED_MODEL}"
+whisper_model: "${WHISPER_MODEL}"
 YAML
+
+info "Using served model id: ${SERVED_MODEL}"
+if [[ -n "${WHISPER_MODEL}" ]]; then
+    info "Configured offline Whisper fallback: ${WHISPER_MODEL}"
+fi
 
 if $SERVER_ONLY; then
     ok "Server-only mode. vLLM is running on port ${VLLM_PORT}."

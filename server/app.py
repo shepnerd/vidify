@@ -12,7 +12,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from agent.extensions.skills.video_io import load_video
-from agent.extensions.workflows.quick_summary import wf_quick
+from agent.core.orchestrator import run, normalize_mode
+from agent.extensions.workflows.brief import wf_brief
 from agent.extensions.workflows.detailed import wf_detailed
 from agent.extensions.workflows.index import wf_index
 from agent.extensions.workflows.ask import wf_ask
@@ -23,13 +24,13 @@ from agent.core.events import event_bus, EventBus, Event
 
 app = FastAPI(title="Video Agent Server", version="0.1.0")
 
-# Mount static files and templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
 # Create directories if not exist
 os.makedirs("static", exist_ok=True)
 os.makedirs("templates", exist_ok=True)
+
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 
 # --------- Request/Response Schemas ---------
@@ -38,7 +39,7 @@ class AnalyzeReq(BaseModel):
     source_type: Literal["youtube", "url", "local"]
     uri: str
 
-    mode: Literal["quick", "detailed"] = "detailed"
+    mode: Literal["brief", "quick", "detailed"] = "detailed"
     cache_root: str = "./cache"
 
     llm_base_url: str = "http://localhost:8000/v1"
@@ -164,10 +165,11 @@ def analyze(req: AnalyzeReq):
     注意：caption 使用 image_url 传本地帧路径；vLLM 需要 --allowed-local-media-path 放行缓存目录 [1]
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    mode = normalize_mode(req.mode)
 
     try:
-        if req.mode == "quick":
-            out = wf_quick(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
+        if mode == "brief":
+            out = wf_brief(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
         else:
             out = wf_detailed(
                 asset, req.llm_base_url, req.llm_model,
@@ -270,7 +272,11 @@ async def upload_video(request: Request, file: UploadFile = File(...), mode: str
 
     # Process video
     asset = load_video("local", file_path, "cache")
-    result = run(asset, mode, {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"})
+    result = run(
+        asset,
+        normalize_mode(mode),
+        {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"},
+    )
 
     return templates.TemplateResponse("result.html", {"request": request, "result": result})
 
@@ -286,6 +292,7 @@ def analyze_stream(req: AnalyzeReq):
     progress bar from the progress_pct field.
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    mode = normalize_mode(req.mode)
     q: queue.Queue = queue.Queue()
 
     def _event_to_queue(event: Event):
@@ -293,8 +300,8 @@ def analyze_stream(req: AnalyzeReq):
 
     def _run_analysis():
         try:
-            if req.mode == "quick":
-                result = wf_quick(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
+            if mode == "brief":
+                result = wf_brief(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
             else:
                 result = wf_detailed(
                     asset, req.llm_base_url, req.llm_model,
