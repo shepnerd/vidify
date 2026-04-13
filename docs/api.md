@@ -1,6 +1,6 @@
 # API Reference
 
-VidCopilot provides both a REST API (FastAPI server) and a CLI interface.
+Vidify provides both a REST API (FastAPI server) and a CLI interface.
 
 ## REST API
 

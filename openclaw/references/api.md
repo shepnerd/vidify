@@ -1,8 +1,8 @@
-# VidCopilot REST API Reference
+# Vidify REST API Reference
 
 ## Base URL
 
-`http://localhost:9000` (configurable via `VIDCOPILOT_PORT` env var)
+`http://localhost:9000` (configurable via `VIDIFY_PORT` env var)
 
 ## Endpoints
 

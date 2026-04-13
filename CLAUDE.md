@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VidCopilot is a video understanding agent that takes a video source (YouTube URL, HTTP URL, or local file) and produces structured analysis: frame captioning, ASR transcription, OCR, object detection, emotion analysis, FAISS-based semantic search, Q&A, highlight detection, and report generation.
+Vidify is a video understanding agent that takes a video source (YouTube URL, HTTP URL, or local file) and produces structured analysis: frame captioning, ASR transcription, OCR, object detection, emotion analysis, FAISS-based semantic search, Q&A, highlight detection, and report generation.
 
 **Tech stack:** Python 3.11+, FastAPI, Pydantic v2, OpenAI SDK (targeting vLLM), Click CLI, FFmpeg, yt-dlp
 
@@ -50,18 +50,18 @@ docker-compose up                      # Starts app (9000) + vLLM (8000)
 
 ### Ascend 910C / D-Cluster
 ```bash
-# Submit vidcopilot job — Qwen3.5-9B with vLLM 0.18 (16 NPUs = full node, interactive)
-job-run vidcopilot-qwen35 -f ./infra/d-cluster/job-vidcopilot-qwen35.yaml
+# Submit vidify job — Qwen3.5-9B with vLLM 0.18 (16 NPUs = full node, interactive)
+job-run vidify-qwen35 -f ./infra/d-cluster/job-vidify-qwen35.yaml
 
 # Inside pod: one-command start (downloads model, starts vLLM, launches chat)
-bash scripts/start_vidcopilot_ascend.sh /data/videos/myvideo.mp4
+bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4
 
 # Or start step by step:
 bash scripts/serving_qwen3_5_ascend.sh &         # vLLM on NPU (Qwen3.5-9B, TP=4)
 python agent/main.py chat local <video> --cache-root ./cache
 
 # Legacy: Qwen2.5-VL-7B (for older images / fallback)
-job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+job-run vidify -f ./infra/d-cluster/job-vidify.yaml
 bash scripts/serving_qwen2_5vl_ascend.sh &
 
 # One-command test on D-cluster

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_test_ascend.sh — Run VidCopilot test suite on D-cluster Ascend 910C nodes.
+# run_test_ascend.sh — Run Vidify test suite on D-cluster Ascend 910C nodes.
 #
 # This script handles two modes:
 #   1. Connect to an already-running vLLM endpoint (--api-base)
@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "============================================================"
-echo " VidCopilot Ascend 910C Test Runner"
+echo " Vidify Ascend 910C Test Runner"
 echo "============================================================"
 echo "  Model:       ${MODEL}"
 echo "  NPUs:        ${NPUS}"
@@ -90,12 +90,12 @@ else
             exit 1
         fi
 
-        JOB_NAME="vidcopilot-test-$(date +%H%M%S)"
+        JOB_NAME="vidify-test-$(date +%H%M%S)"
         echo "[cluster] Launching job '${JOB_NAME}' with ${NPUS} NPUs ..."
 
-        # Launch job using the vidcopilot template
+        # Launch job using the vidify template
         bash "${INFRA_DIR}/job-run.sh" "${JOB_NAME}" \
-            -f "${PROJECT_ROOT}/infra/d-cluster/job-vidcopilot.yaml"
+            -f "${PROJECT_ROOT}/infra/d-cluster/job-vidify.yaml"
 
         # Wait for pod to be running
         echo "[cluster] Waiting for pod to be ready ..."
@@ -125,7 +125,7 @@ else
         # Start vLLM inside the pod
         echo "[vllm] Starting vLLM on NPU inside pod ..."
         kubectl exec "${POD_NAME}" -- bash -c \
-            "cd /workspace/vidcopilot && nohup bash scripts/serving_qwen3_5_ascend.sh > /tmp/vllm.log 2>&1 &"
+            "cd /workspace/vidify && nohup bash scripts/serving_qwen3_5_ascend.sh > /tmp/vllm.log 2>&1 &"
 
         # Wait for vLLM to be ready
         API_BASE="http://${POD_IP}:8000/v1"

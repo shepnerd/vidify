@@ -1,6 +1,6 @@
 # Google Custom Search API Setup
 
-To use the web search functionality in VidCopilot, you need to set up Google Custom Search API credentials.
+To use the web search functionality in Vidify, you need to set up Google Custom Search API credentials.
 
 ## 1. Create a Google Cloud Project
 
@@ -71,7 +71,7 @@ python agent/main.py --source-type youtube --uri "https://www.youtube.com/watch?
 
 ## Multi-Region Support
 
-VidCopilot automatically detects your network environment and provides the best search experience:
+Vidify automatically detects your network environment and provides the best search experience:
 
 ### For Global Users (Google Accessible)
 - Uses Google Custom Search API for high-quality, comprehensive results

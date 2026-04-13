@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serve Qwen3-MLA (Multi-head Latent Attention variant of Qwen3-VL) for VidCopilot.
+# Serve Qwen3-MLA (Multi-head Latent Attention variant of Qwen3-VL) for Vidify.
 #
 # This model uses custom modeling code (trust_remote_code) that replaces GQA with
 # MLA for more efficient KV-cache usage during inference.

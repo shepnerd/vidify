@@ -56,7 +56,7 @@ else
 fi
 
 echo "============================================================"
-echo " VidCopilot GPU Test Runner"
+echo " Vidify GPU Test Runner"
 echo "============================================================"
 echo "  Model:       ${MODEL}"
 echo "  GPU:         ${GPU}"

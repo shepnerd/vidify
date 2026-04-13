@@ -151,7 +151,7 @@ def bench_image_prompt(client: OpenAI, model: str, image_path: str,
 # ── Level 2: Full pipeline comparison ───────────────────────────────────────
 
 def run_pipeline(video_path: str, api_base: str, model_name: str) -> dict:
-    """Run VidCopilot brief analysis and measure wall time."""
+    """Run Vidify brief analysis and measure wall time."""
     from agent.core.orchestrator import run
     from agent.core.video_loader import load_video
 
@@ -273,7 +273,7 @@ def main():
             print("  [SKIP] Could not extract frame from video")
 
     if not args.skip_pipeline:
-        print("\n[Pipeline] Full VidCopilot brief analysis comparison...")
+        print("\n[Pipeline] Full Vidify brief analysis comparison...")
         print(f"  Running pipeline with {name_a}...")
         try:
             pa = run_pipeline(args.video, args.api_base_a, model_a)

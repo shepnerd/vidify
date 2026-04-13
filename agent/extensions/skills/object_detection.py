@@ -25,7 +25,7 @@ def _get_model():
         if not _check_ultralytics():
             raise ImportError(
                 "ultralytics is required for object detection but is not installed. "
-                "Install it with: pip install vidcopilot[detection]"
+                "Install it with: pip install vidify[detection]"
             )
         import os
         # Prevent ultralytics from reaching the network on air-gapped clusters

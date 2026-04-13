@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serve Qwen3.5-9B for VidCopilot.
+# Serve Qwen3.5-9B for Vidify.
 #
 # Requires vLLM >= 0.19.0 for Qwen3.5 support:
 #   pip install "vllm>=0.19.0"

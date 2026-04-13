@@ -423,7 +423,7 @@ def run_chat_repl(chat: VideoChat):
         f"Duration: {duration}  |  "
         f"ASR: {chat.sufficiency.get('transcript_word_count', '?')} words  |  "
         f"Chapters: {len(chat.chapters)}",
-        title="[bold cyan]VidCopilot Chat[/bold cyan]",
+        title="[bold cyan]Vidify Chat[/bold cyan]",
         border_style="cyan",
     ))
 

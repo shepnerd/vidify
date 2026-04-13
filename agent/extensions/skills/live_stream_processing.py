@@ -107,7 +107,7 @@ class LiveStreamProcessor:
         self._current_segment_start_ts: float = 0.0
         self._prev_embedding: Optional[Any] = None
         self._lock = threading.Lock()
-        self._tmp_dir = tempfile.mkdtemp(prefix="vidcopilot_live_")
+        self._tmp_dir = tempfile.mkdtemp(prefix="vidify_live_")
 
     def start(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> None:
         """Start processing the stream. Blocks until stop() is called or stream ends."""

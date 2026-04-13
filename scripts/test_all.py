@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive lite test for ALL VidCopilot agent skills.
+Comprehensive lite test for ALL Vidify agent skills.
 
 Tests each skill module individually on a local video file, keeping each
 test bounded so the full suite finishes within ~15 minutes on a 49-min video.
@@ -1001,7 +1001,7 @@ TEST_MAP = {
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Comprehensive lite test for all VidCopilot agent skills",
+        description="Comprehensive lite test for all Vidify agent skills",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--video-path", required=True, help="Path to local video file.")

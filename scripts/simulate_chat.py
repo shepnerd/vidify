@@ -126,7 +126,7 @@ def simulate_chat(asset, analysis, client, model, questions, output_path=None):
         f"Duration: {duration}  |  "
         f"ASR: {session.sufficiency.get('transcript_word_count', '?')} words  |  "
         f"Chapters: {len(session.chapters)}",
-        title="[bold cyan]VidCopilot Chat Simulation[/bold cyan]",
+        title="[bold cyan]Vidify Chat Simulation[/bold cyan]",
         border_style="cyan",
     ))
     console.print()
@@ -184,7 +184,7 @@ def simulate_chat(asset, analysis, client, model, questions, output_path=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulate VidCopilot interactive chat")
+    parser = argparse.ArgumentParser(description="Simulate Vidify interactive chat")
     parser.add_argument("--video", required=True, help="Path to video file")
     parser.add_argument("--api-base", default="http://localhost:8000/v1", help="vLLM API base URL")
     parser.add_argument("--model", default=None, help="Model name (auto-detect if not given)")

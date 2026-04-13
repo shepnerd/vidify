@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# start_vidcopilot_ascend.sh — One-command start for VidCopilot + Qwen3.5 on Ascend 910C.
+# start_vidify_ascend.sh — One-command start for Vidify + Qwen3.5 on Ascend 910C.
 #
 # Starts vLLM with Qwen3.5-9B in background, waits for readiness, then drops
 # into interactive chat mode. Run inside a D-cluster pod.
 #
 # Usage:
-#   bash scripts/start_vidcopilot_ascend.sh                              # interactive chat
-#   bash scripts/start_vidcopilot_ascend.sh /data/videos/myvideo.mp4     # with a specific video
-#   bash scripts/start_vidcopilot_ascend.sh --model /data/models/Qwen3.5-9B  # custom model path
-#   bash scripts/start_vidcopilot_ascend.sh --server-only                # only start vLLM, no chat
+#   bash scripts/start_vidify_ascend.sh                              # interactive chat
+#   bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4     # with a specific video
+#   bash scripts/start_vidify_ascend.sh --model /data/models/Qwen3.5-9B  # custom model path
+#   bash scripts/start_vidify_ascend.sh --server-only                # only start vLLM, no chat
 #
 # What it does:
 #   1. Checks Ascend NPU availability
@@ -30,9 +30,9 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-info()  { echo -e "${CYAN}[vidcopilot]${NC} $*"; }
-ok()    { echo -e "${GREEN}[vidcopilot]${NC} $*"; }
-err()   { echo -e "${RED}[vidcopilot]${NC} $*" >&2; }
+info()  { echo -e "${CYAN}[vidify]${NC} $*"; }
+ok()    { echo -e "${GREEN}[vidify]${NC} $*"; }
+err()   { echo -e "${RED}[vidify]${NC} $*" >&2; }
 
 # ── Parse args ──────────────────────────────────────────────────────────────
 MODEL_PATH=""
@@ -61,7 +61,7 @@ done
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   VidCopilot + Qwen3.5 on Ascend 910C          ║${NC}"
+echo -e "${BOLD}║   Vidify + Qwen3.5 on Ascend 910C              ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 

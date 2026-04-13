@@ -122,9 +122,9 @@ def local_search_fallback(query: str, num_results: int = 5) -> List[Dict]:
             'source': 'local_fallback'
         },
         {
-            'title': 'VidCopilot 功能说明',
+            'title': 'Vidify 功能说明',
             'url': 'README.md',
-            'snippet': 'VidCopilot 支持多种分析模式，包括简要分析、详细分析、高光剪辑等。即使没有网络搜索功能，基本的视频分析功能仍然可用。',
+            'snippet': 'Vidify 支持多种分析模式，包括简要分析、详细分析、高光剪辑等。即使没有网络搜索功能，基本的视频分析功能仍然可用。',
             'source': 'local_fallback'
         }
     ]

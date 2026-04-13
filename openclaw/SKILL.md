@@ -1,14 +1,14 @@
 ---
-name: vidcopilot
+name: vidify
 description: Analyze videos end-to-end — frame captioning, ASR transcription, OCR, object detection, emotion analysis, timeline, highlights, and Q&A. Give it a YouTube URL, HTTP link, or local file.
-homepage: https://github.com/user/vidcopilot
+homepage: https://github.com/user/vidify
 metadata:
-  { "openclaw": { "emoji": "🎥", "requires": { "bins": ["vidcopilot", "ffmpeg"] }, "install": [ { "id": "pip", "kind": "node", "label": "Install VidCopilot (pip)", "bins": ["vidcopilot"] } ] } }
+  { "openclaw": { "emoji": "🎥", "requires": { "bins": ["vidify", "ffmpeg"] }, "install": [ { "id": "pip", "kind": "node", "label": "Install Vidify (pip)", "bins": ["vidify"] } ] } }
 ---
 
-# VidCopilot — Video Understanding Agent
+# Vidify — Video Understanding Agent
 
-Use VidCopilot when the user wants to deeply analyze a video: understand what happens, extract transcripts, find highlights, ask questions about content, detect objects/emotions, or generate a report.
+Use Vidify when the user wants to deeply analyze a video: understand what happens, extract transcripts, find highlights, ask questions about content, detect objects/emotions, or generate a report.
 
 ## When to use
 
@@ -25,19 +25,19 @@ Use VidCopilot when the user wants to deeply analyze a video: understand what ha
 Analyze a YouTube video (detailed mode — frames + ASR + OCR + objects + emotions + timeline):
 
 ```bash
-vidcopilot analyze youtube "https://www.youtube.com/watch?v=VIDEO_ID" --mode detailed
+vidify analyze youtube "https://www.youtube.com/watch?v=VIDEO_ID" --mode detailed
 ```
 
 Quick analysis (frames + captions + timeline, no ASR):
 
 ```bash
-vidcopilot analyze youtube "https://www.youtube.com/watch?v=VIDEO_ID" --mode quick
+vidify analyze youtube "https://www.youtube.com/watch?v=VIDEO_ID" --mode quick
 ```
 
 Local file:
 
 ```bash
-vidcopilot analyze local "/path/to/video.mp4" --mode detailed
+vidify analyze local "/path/to/video.mp4" --mode detailed
 ```
 
 ## Wrapper scripts
@@ -47,7 +47,7 @@ For convenience, use the wrapper scripts shipped with this skill:
 ### Analyze a video
 
 ```bash
-{baseDir}/scripts/vidcopilot-analyze.sh <source_type> "<uri>" [mode]
+{baseDir}/scripts/vidify-analyze.sh <source_type> "<uri>" [mode]
 ```
 
 - `source_type`: `youtube`, `url`, or `local`
@@ -57,7 +57,7 @@ For convenience, use the wrapper scripts shipped with this skill:
 ### Ask a question about a video
 
 ```bash
-{baseDir}/scripts/vidcopilot-ask.sh <source_type> "<uri>" "<question>"
+{baseDir}/scripts/vidify-ask.sh <source_type> "<uri>" "<question>"
 ```
 
 Automatically builds a FAISS index if needed, then answers the question with evidence and timestamps.
@@ -65,12 +65,12 @@ Automatically builds a FAISS index if needed, then answers the question with evi
 ### Start the REST API server
 
 ```bash
-{baseDir}/scripts/vidcopilot-server.sh start
-{baseDir}/scripts/vidcopilot-server.sh stop
-{baseDir}/scripts/vidcopilot-server.sh status
+{baseDir}/scripts/vidify-server.sh start
+{baseDir}/scripts/vidify-server.sh stop
+{baseDir}/scripts/vidify-server.sh status
 ```
 
-Runs the VidCopilot API server on port 9000. Use when you need concurrent access or want to use the REST API directly.
+Runs the Vidify API server on port 9000. Use when you need concurrent access or want to use the REST API directly.
 
 ## Workflow modes
 
@@ -86,7 +86,7 @@ Runs the VidCopilot API server on port 9000. Use when you need concurrent access
 ## CLI options
 
 ```
-vidcopilot analyze <source_type> <uri>
+vidify analyze <source_type> <uri>
   --mode        quick|detailed|highlights|index|ask|report  (default: detailed)
   --cache-root  Cache directory                              (default: ./cache)
   --question    Question text (for ask mode)
@@ -117,7 +117,7 @@ See `{baseDir}/references/api.md` for full request/response schemas.
 
 ## Prerequisites
 
-- **Python 3.11+** with `vidcopilot` installed (`pip install vidcopilot` or `pip install -e /path/to/vidcopilot`)
+- **Python 3.11+** with `vidify` installed (`pip install vidify` or `pip install -e /path/to/vidify`)
 - **ffmpeg** on PATH (video/audio processing)
 - **vLLM server** running on `http://localhost:8000/v1` with a multimodal model (e.g., Qwen3-VL) for captioning and Q&A
 - **yt-dlp** on PATH (for YouTube downloads — installed as a Python dependency)

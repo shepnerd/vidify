@@ -1,9 +1,9 @@
 #!/bin/bash
-# VidCopilot Setup Script
+# Vidify Setup Script
 
 set -euo pipefail
 
-echo "Setting up VidCopilot..."
+echo "Setting up Vidify..."
 
 # ── System dependencies ──────────────────────────────────────────────────────
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run all VidCopilot skill tests on a local video.
+# Run all Vidify skill tests on a local video.
 # Usage:
 #   bash scripts/test_all.sh                              # default: taste_in_china video, 4 GPUs
 #   bash scripts/test_all.sh --api-base http://HOST:8000  # use existing serving

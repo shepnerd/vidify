@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # run_analysis_ascend.sh — Run full detailed analysis on Ascend 910C.
 #
-# Starts vLLM with Qwen3.5-9B, then runs VidCopilot detailed analysis
+# Starts vLLM with Qwen3.5-9B, then runs Vidify detailed analysis
 # (ASR, emotion analysis, translation, OCR, object detection, captioning).
 #
 # Usage (inside D-cluster pod):
 #   bash scripts/run_analysis_ascend.sh                                    # auto-find video
-#   bash scripts/run_analysis_ascend.sh /workspace/vidcopilot/cache/downloads/SSya123u9Yk.mp4
+#   bash scripts/run_analysis_ascend.sh /workspace/vidify/cache/downloads/SSya123u9Yk.mp4
 #   bash scripts/run_analysis_ascend.sh --server-only                      # only start vLLM
 
 set -euo pipefail
@@ -40,7 +40,7 @@ done
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║  VidCopilot Analysis — Qwen3.5 on Ascend 910C          ║${NC}"
+echo -e "${BOLD}║  Vidify Analysis — Qwen3.5 on Ascend 910C              ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 

@@ -61,7 +61,7 @@ def test_chinese_search():
         print(f"Error in Chinese search: {e}")
 
 if __name__ == "__main__":
-    print("VidCopilot Multi-Region Web Search Test")
+    print("Vidify Multi-Region Web Search Test")
     print("=" * 50)
     
     google_ok = test_network_detection()

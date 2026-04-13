@@ -1,4 +1,4 @@
-# hooks.yaml — VidCopilot lifecycle hooks
+# hooks.yaml — Vidify lifecycle hooks
 #
 # Hook points:
 #   pre_analysis   — before any workflow starts
@@ -21,7 +21,7 @@
 #       async: true
 #       timeout: 10
 #   on_error:
-#     - command: "echo \"[$(date)] ERROR: $ERROR_MSG — $VIDEO_URI\" >> /var/log/vidcopilot_errors.log"
+#     - command: "echo \"[$(date)] ERROR: $ERROR_MSG — $VIDEO_URI\" >> /var/log/vidify_errors.log"
 #   post_highlight:
 #     - command: "aws s3 sync $CACHE_DIR/highlights/ s3://my-bucket/highlights/"
 #       async: true

@@ -1,6 +1,6 @@
 # Configuration
 
-VidCopilot uses YAML-based configuration with sensible defaults. Configuration is optional — the system works out of the box with built-in defaults.
+Vidify uses YAML-based configuration with sensible defaults. Configuration is optional — the system works out of the box with built-in defaults.
 
 ## Configuration Files
 
@@ -79,7 +79,7 @@ If no YAML file exists, built-in defaults are used.
 
 ## vLLM Setup
 
-VidCopilot requires a vLLM server providing OpenAI-compatible endpoints.
+Vidify requires a vLLM server providing OpenAI-compatible endpoints.
 
 ### Minimum command
 
@@ -93,7 +93,7 @@ vllm serve /path/to/model \
 
 | Flag | Why |
 |------|-----|
-| `--allowed-local-media-path` | Required. VidCopilot passes local frame paths as `file://` image URLs. |
+| `--allowed-local-media-path` | Required. Vidify passes local frame paths as `file://` image URLs. |
 | `--generation-config vllm` | Recommended. Prevents unexpected behavior from model repo's `generation_config.json`. |
 | `--tensor-parallel-size N` | Set to match your GPU count. |
 | `--max-model-len 32768` | Needed for long video contexts. |
@@ -129,12 +129,12 @@ docker-compose up
 ```
 
 This starts:
-- `vidcopilot` — FastAPI server on port 9000
+- `vidify` — FastAPI server on port 9000
 - `vllm` — vLLM model server on port 8000 (GPU-enabled)
 
 ### Standalone Docker
 
 ```bash
-docker build -t vidcopilot .
-docker run -p 9000:9000 vidcopilot
+docker build -t vidify .
+docker run -p 9000:9000 vidify
 ```

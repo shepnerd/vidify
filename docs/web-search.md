@@ -1,6 +1,6 @@
 # Web Search Integration
 
-VidCopilot can enhance video analysis with web context using Google Custom Search API, with automatic fallback to Baidu for users in China.
+Vidify can enhance video analysis with web context using Google Custom Search API, with automatic fallback to Baidu for users in China.
 
 ## Features
 

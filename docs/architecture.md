@@ -1,6 +1,6 @@
 # Architecture
 
-VidCopilot follows a modular pipeline architecture. Video enters through an I/O layer, passes through configurable skill stages, and produces structured analysis output.
+Vidify follows a modular pipeline architecture. Video enters through an I/O layer, passes through configurable skill stages, and produces structured analysis output.
 
 ## Directory Layout
 

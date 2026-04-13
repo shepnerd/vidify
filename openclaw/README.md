@@ -1,18 +1,18 @@
-# VidCopilot OpenClaw Skill
+# Vidify OpenClaw Skill
 
-An [OpenClaw](https://openclaw.ai) skill that integrates [VidCopilot](https://github.com/user/vidcopilot) — a video understanding agent for deep video analysis, transcription, Q&A, highlight detection, and more.
+An [OpenClaw](https://openclaw.ai) skill that integrates [Vidify](https://github.com/user/vidify) — a video understanding agent for deep video analysis, transcription, Q&A, highlight detection, and more.
 
 ## Installation
 
-### 1. Install VidCopilot and dependencies
+### 1. Install Vidify and dependencies
 
 ```bash
 # From PyPI (when published)
-pip install vidcopilot
+pip install vidify
 
 # Or from source
-git clone https://github.com/user/vidcopilot.git
-cd vidcopilot
+git clone https://github.com/user/vidify.git
+cd vidify
 pip install -e .
 ```
 
@@ -26,13 +26,13 @@ System dependencies:
 Copy this directory to your OpenClaw workspace:
 
 ```bash
-cp -r /path/to/vidcopilot/openclaw ~/.openclaw/workspace/skills/vidcopilot
+cp -r /path/to/vidify/openclaw ~/.openclaw/workspace/skills/vidify
 ```
 
 Or symlink it:
 
 ```bash
-ln -s /path/to/vidcopilot/openclaw ~/.openclaw/workspace/skills/vidcopilot
+ln -s /path/to/vidify/openclaw ~/.openclaw/workspace/skills/vidify
 ```
 
 ### 3. Restart OpenClaw
@@ -47,7 +47,7 @@ openclaw gateway restart
 
 ```bash
 openclaw skills list
-# Should show "vidcopilot" in the list
+# Should show "vidify" in the list
 ```
 
 ## Usage
@@ -72,10 +72,10 @@ The skill uses these defaults which can be adjusted:
 
 ## Optional: REST API mode
 
-For concurrent access or integration with other tools, start the VidCopilot API server:
+For concurrent access or integration with other tools, start the Vidify API server:
 
 ```bash
-~/.openclaw/workspace/skills/vidcopilot/scripts/vidcopilot-server.sh start
+~/.openclaw/workspace/skills/vidify/scripts/vidify-server.sh start
 ```
 
-The server runs on port 9000 (configurable via `VIDCOPILOT_PORT`).
+The server runs on port 9000 (configurable via `VIDIFY_PORT`).

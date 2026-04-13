@@ -2,7 +2,7 @@
 """Lifecycle hook system for analysis pipelines.
 
 Inspired by Claude Code's 30+ lifecycle hooks with configurable shell commands.
-VidCopilot uses a simpler version focused on analysis lifecycle events.
+Vidify uses a simpler version focused on analysis lifecycle events.
 
 Hook points:
   pre_analysis   — before any workflow starts

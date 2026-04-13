@@ -7,7 +7,7 @@ with open("requirements.txt") as f:
     ]
 
 setup(
-    name="vidcopilot",
+    name="vidify",
     version="0.3.0",
     description="Video understanding agent — analyze, search, and edit videos with LLMs (parallel segment processing)",
     packages=find_packages(),
@@ -18,7 +18,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'vidcopilot=agent.main:cli',
+            'vidify=agent.main:cli',
         ],
     },
     python_requires=">=3.11",

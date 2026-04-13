@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  vidcopilot:
+  vidify:
     build: .
     ports:
       - "9000:9000"

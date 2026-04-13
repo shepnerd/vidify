@@ -10,7 +10,7 @@ from agent.extensions.skills.web_search import web_search, is_google_accessible
 
 def demo_multi_region_search():
     """Demonstrate multi-region search capabilities"""
-    print("🌐 VidCopilot Multi-Region Web Search Demo")
+    print("🌐 Vidify Multi-Region Web Search Demo")
     print("=" * 50)
 
     # Check network connectivity
@@ -65,7 +65,7 @@ def demo_multi_region_search():
     print("   2️⃣ Baidu Search (for Chinese users)")
     print("   3️⃣ Local guidance and suggestions")
 
-    print("\n✨ VidCopilot adapts to your network environment automatically!")
+    print("\n✨ Vidify adapts to your network environment automatically!")
 
 if __name__ == "__main__":
     demo_multi_region_search()

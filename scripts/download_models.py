@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Download all required models for VidCopilot and organize them.
+Download all required models for Vidify and organize them.
 
 HuggingFace models stay in the HF cache (managed by huggingface_hub).
 Non-HF models (PaddleOCR, YOLOv8) are placed under models/ in the project root.
@@ -150,7 +150,7 @@ DOWNLOAD_MAP = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download VidCopilot models")
+    parser = argparse.ArgumentParser(description="Download Vidify models")
     parser.add_argument("--only", nargs="+", choices=ALL_MODELS, default=ALL_MODELS,
                         help="Download only specific models (default: all)")
     args = parser.parse_args()

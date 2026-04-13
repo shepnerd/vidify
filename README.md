@@ -1,4 +1,4 @@
-# VidCopilot
+# Vidify
 
 Video understanding agent — feed it a YouTube URL and get structured analysis, searchable index, Q&A, highlights, and reports.
 
@@ -18,7 +18,7 @@ Video understanding agent — feed it a YouTube URL and get structured analysis,
 
 ## Design Philosophy: ASR-First, Visuals as Last Resort
 
-Most videos (documentaries, vlogs, presentations, interviews, movie reviews, sports commentary) convey their key information through speech or subtitles. VidCopilot is designed around this insight:
+Most videos (documentaries, vlogs, presentations, interviews, movie reviews, sports commentary) convey their key information through speech or subtitles. Vidify is designed around this insight:
 
 1. **Subtitles first** — For YouTube/web videos, embedded subtitles (manual or auto-generated) are extracted via yt-dlp and used as the primary transcript. These are free and often higher quality than ASR.
 2. **ASR fallback** — If no subtitles are available, Whisper ASR transcribes the audio.
@@ -191,7 +191,7 @@ python agent/main.py local stream --mode live --stream-source stream --stream-ur
 
 ## Online / Streaming Processing
 
-VidCopilot supports real-time video understanding from webcams and RTMP/HTTP streams. The streaming architecture is inspired by [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive).
+Vidify supports real-time video understanding from webcams and RTMP/HTTP streams. The streaming architecture is inspired by [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive).
 
 ### Architecture
 
@@ -376,7 +376,7 @@ See [Testing Guide](docs/testing.md) for full details.
 
 ## Production Features
 
-VidCopilot includes production-hardening patterns inspired by large-scale agent architectures:
+Vidify includes production-hardening patterns inspired by large-scale agent architectures:
 
 ### Retry with Exponential Backoff
 
@@ -524,7 +524,7 @@ scripts/                 # Test and demo scripts
   serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
   serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend 910C NPU (fallback)
   serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5-9B on Ascend 910C (vLLM 0.18+)
-  start_vidcopilot_ascend.sh  # One-command: start vLLM + vidcopilot chat on Ascend
+  start_vidify_ascend.sh  # One-command: start vLLM + vidify chat on Ascend
   rl.sh                    # GPU cluster job launcher (rlaunch wrapper)
 docs/                    # Detailed documentation
 .env                     # Cluster config: quota group, GPFS mounts, CUDA_HOME (gitignored)
@@ -576,7 +576,7 @@ See [Configuration Guide](docs/configuration.md).
 
 ## Ascend 910C / D-Cluster Deployment
 
-VidCopilot can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform) using vLLM with the `vllm_ascend` backend.
+Vidify can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform) using vLLM with the `vllm_ascend` backend.
 
 ### Prerequisites
 
@@ -597,16 +597,16 @@ Qwen3.5-9B's hybrid GDN+Attention architecture is supported on Ascend via vllm_a
 
 ```bash
 # 1. Submit a job (16 NPUs = full node, interactive)
-job-run vidcopilot-qwen35 -f ./infra/d-cluster/job-vidcopilot-qwen35.yaml
+job-run vidify-qwen35 -f ./infra/d-cluster/job-vidify-qwen35.yaml
 
 # 2. Exec into the pod
-pod-exec vidcopilot-qwen35
+pod-exec vidify-qwen35
 
 # 3. One-command start: downloads model, starts vLLM, launches chat
-bash scripts/start_vidcopilot_ascend.sh /data/videos/myvideo.mp4
+bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4
 
 # Or start server only, then chat separately:
-bash scripts/start_vidcopilot_ascend.sh --server-only
+bash scripts/start_vidify_ascend.sh --server-only
 python agent/main.py chat local /data/videos/myvideo.mp4 --cache-root ./cache
 ```
 
@@ -614,10 +614,10 @@ python agent/main.py chat local /data/videos/myvideo.mp4 --cache-root ./cache
 
 ```bash
 # 1. Submit a job (uses older image)
-job-run vidcopilot -f ./infra/d-cluster/job-vidcopilot.yaml
+job-run vidify -f ./infra/d-cluster/job-vidify.yaml
 
 # 2. Exec into pod, start vLLM + API
-pod-exec vidcopilot
+pod-exec vidify
 bash scripts/serving_qwen2_5vl_ascend.sh &
 uvicorn server.app:app --host 0.0.0.0 --port 9000
 ```
@@ -691,8 +691,8 @@ job-delete img-build -y
 docker-compose up
 
 # App only
-docker build -t vidcopilot .
-docker run -p 9000:9000 vidcopilot
+docker build -t vidify .
+docker run -p 9000:9000 vidify
 ```
 
 ## Requirements
