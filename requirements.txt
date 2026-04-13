@@ -7,7 +7,8 @@ openai>=1.40.0
 yt-dlp>=2024.7.0
 pillow>=10.0.0
 
-faster-whisper>=1.0.0
+# Whisper ASR via HuggingFace transformers (supports NPU/CUDA/CPU)
+# faster-whisper removed: CTranslate2 backend doesn't support Ascend NPUs
 
 faiss-cpu>=1.8.0
 numpy>=1.26

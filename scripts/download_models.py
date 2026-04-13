@@ -20,12 +20,16 @@ MODELS_DIR = PROJECT_ROOT / "models"
 
 
 def download_whisper(size: str = "small"):
-    """Download faster-whisper model via HuggingFace (stays in HF cache)."""
+    """Download Whisper model via HuggingFace transformers (stays in HF cache or models/)."""
+    local_dir = MODELS_DIR / f"whisper-{size}"
+    if local_dir.exists() and any(local_dir.iterdir()):
+        print(f"[whisper] Already present: {local_dir}")
+        return str(local_dir)
     try:
         from huggingface_hub import snapshot_download
-        repo = f"Systran/faster-whisper-{size}"
-        print(f"[whisper] Downloading {repo} (HF-managed) ...")
-        path = snapshot_download(repo)
+        repo = f"openai/whisper-{size}"
+        print(f"[whisper] Downloading {repo} to {local_dir} ...")
+        path = snapshot_download(repo, local_dir=str(local_dir))
         print(f"[whisper] OK: {path}")
         return path
     except Exception as e:
@@ -70,24 +74,40 @@ def download_paddleocr():
 
 
 def download_yolo(model_name: str = "yolov8n.pt"):
-    """Download YOLO model to models/."""
+    """Download YOLO model to models/ and pre-cache ultralytics assets."""
     dst = MODELS_DIR / model_name
     if dst.exists():
         print(f"[yolo] Already present: {dst}")
-        return True
+    else:
+        try:
+            from ultralytics import YOLO
+            print(f"[yolo] Downloading {model_name} ...")
+            model = YOLO(model_name)
+            # ultralytics downloads to CWD; move to models/
+            src = Path(model_name)
+            if src.exists() and src != dst:
+                shutil.move(str(src), str(dst))
+            print(f"[yolo] OK: {dst}")
+        except Exception as e:
+            print(f"[yolo] FAILED: {e}")
+            return False
+
+    # Pre-cache the Arial.ttf font that ultralytics downloads at plot time
     try:
-        from ultralytics import YOLO
-        print(f"[yolo] Downloading {model_name} ...")
-        model = YOLO(model_name)
-        # ultralytics downloads to CWD; move to models/
-        src = Path(model_name)
-        if src.exists() and src != dst:
-            shutil.move(str(src), str(dst))
-        print(f"[yolo] OK: {dst}")
-        return True
+        from ultralytics.utils import ASSETS_URL  # noqa: F401
+        from ultralytics.utils.downloads import attempt_download_asset
+        from ultralytics import settings as ul_settings
+        font_dir = Path(ul_settings.get("datasets_dir", Path.home() / "datasets"))
+        # Trigger font download so it's cached for offline use
+        from ultralytics.utils.plotting import Annotator
+        import numpy as np
+        dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+        Annotator(dummy)
+        print("[yolo] Font/assets pre-cached for offline use")
     except Exception as e:
-        print(f"[yolo] FAILED: {e}")
-        return False
+        print(f"[yolo] Font pre-cache skipped: {e}")
+
+    return True
 
 
 def download_emotion():

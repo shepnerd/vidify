@@ -214,39 +214,47 @@ def test_audio_extract(video_path: str, cache_dir: str, **_) -> dict:
 
 
 def test_asr(video_path: str, cache_dir: str, **_) -> dict:
-    """Test ASR skill: transcribe first 120s of audio via faster-whisper."""
+    """Test ASR skill: transcribe first 120s of audio via transformers Whisper."""
     log("=" * 60)
-    log("TEST: asr — Transcribe 120s audio clip (faster-whisper)")
+    log("TEST: asr — Transcribe 120s audio clip (transformers Whisper)")
     log("=" * 60)
 
     audio_path = get_short_audio(video_path, max_duration=120.0, cache_dir=cache_dir)
     log(f"  Audio clip: {audio_path}")
 
-    # Set HF_HUB_OFFLINE *before* importing faster_whisper, because
-    # huggingface_hub caches the offline flag at import time.
-    os.environ["HF_HUB_OFFLINE"] = "1"
     try:
-        from faster_whisper import WhisperModel
+        from transformers import WhisperProcessor, WhisperForConditionalGeneration
     except ImportError:
-        os.environ.pop("HF_HUB_OFFLINE", None)
-        log("  SKIP: faster_whisper not installed")
-        return {"status": "skip", "reason": "faster_whisper not installed"}
+        log("  SKIP: transformers not installed")
+        return {"status": "skip", "reason": "transformers not installed"}
+
+    import torch
+    # Detect best device: NPU > CUDA > CPU
+    device = "cpu"
+    dtype = torch.float32
+    try:
+        import torch_npu  # noqa: F401
+        if torch.npu.is_available():
+            device, dtype = "npu", torch.float16
+    except ImportError:
+        pass
+    if device == "cpu" and torch.cuda.is_available():
+        device, dtype = "cuda", torch.float16
+    log(f"  Device: {device}")
 
     log("  Loading Whisper model (small) ...")
-    # Auto-detect device: CUDA if available, otherwise CPU with int8
-    import torch
-    if torch.cuda.is_available():
-        _device, _compute = "cuda", "float16"
-    else:
-        _device, _compute = "cpu", "int8"
-    log(f"  Device: {_device}, compute_type: {_compute}")
+    from agent.config import get_model_path
+    model_id = get_model_path("whisper-small")
+    if not os.path.isdir(model_id):
+        model_id = "openai/whisper-small"
 
-    # Try offline (cached model) first, then fall back to online download
+    # Try offline first, then fall back to online download
+    os.environ["HF_HUB_OFFLINE"] = "1"
     try:
-        model = WhisperModel("small", device=_device, compute_type=_compute)
-    except Exception as e1:
+        processor = WhisperProcessor.from_pretrained(model_id)
+        model = WhisperForConditionalGeneration.from_pretrained(model_id)
+    except Exception:
         os.environ.pop("HF_HUB_OFFLINE", None)
-        # Quick connectivity check before attempting full download
         import socket
         try:
             socket.create_connection(("huggingface.co", 443), timeout=5)
@@ -255,28 +263,30 @@ def test_asr(video_path: str, cache_dir: str, **_) -> dict:
             return {"status": "skip", "reason": "Whisper model not available (no cache, no internet)"}
         log("  Whisper model not cached locally, downloading ...")
         try:
-            model = WhisperModel("small", device=_device, compute_type=_compute)
+            processor = WhisperProcessor.from_pretrained(model_id)
+            model = WhisperForConditionalGeneration.from_pretrained(model_id)
         except Exception as e2:
             log(f"  SKIP: Cannot load Whisper model: {e2}")
             return {"status": "skip", "reason": f"Whisper model download failed: {e2}"}
     finally:
         os.environ.pop("HF_HUB_OFFLINE", None)
-    segments_iter, info = model.transcribe(audio_path, beam_size=5, vad_filter=True)
-    log(f"  Language: {info.language} (prob={info.language_probability:.2f})")
 
-    segments = []
-    for seg in segments_iter:
-        segments.append({"start": seg.start, "end": seg.end, "text": seg.text.strip()})
-        if len(segments) <= 5:
-            log(f"  [{seg.start:.1f}-{seg.end:.1f}] {seg.text.strip()[:60]}")
-        elif len(segments) == 6:
-            log(f"  ... (showing first 5 of many)")
+    model = model.to(device).to(dtype)
+    model.eval()
 
-    log(f"  Total segments: {len(segments)}")
-    assert len(segments) > 0, "Must transcribe at least one segment"
+    import librosa
+    audio, sr = librosa.load(audio_path, sr=16000)
+    input_features = processor(audio, sampling_rate=16000, return_tensors="pt").input_features
+    input_features = input_features.to(device).to(dtype)
+
+    with torch.no_grad():
+        predicted_ids = model.generate(input_features, max_new_tokens=448, task="transcribe")
+    text = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
+
+    log(f"  Transcribed text (first 200 chars): {text[:200]}")
+    assert len(text) > 0, "Must transcribe some text"
     log("  PASS")
-    return {"language": info.language, "segment_count": len(segments),
-            "segments": segments[:10]}
+    return {"text_length": len(text), "text_preview": text[:500]}
 
 
 def test_ocr(video_path: str, cache_dir: str, **_) -> dict:
@@ -704,30 +714,52 @@ def test_asr_first_brief(video_path: str, cache_dir: str,
     try:
         # Set HF_HUB_OFFLINE before import to prevent network calls
         os.environ["HF_HUB_OFFLINE"] = "1"
-        from faster_whisper import WhisperModel
+        from transformers import WhisperProcessor, WhisperForConditionalGeneration
         import torch
-        if torch.cuda.is_available():
-            _device, _compute = "cuda", "float16"
-        else:
-            _device, _compute = "cpu", "int8"
-        log(f"    Device: {_device}, compute_type: {_compute}")
+        import librosa
+        # Detect best device: NPU > CUDA > CPU
+        _device = "cpu"
+        _dtype = torch.float32
         try:
-            whisper = WhisperModel("small", device=_device, compute_type=_compute)
+            import torch_npu  # noqa: F401
+            if torch.npu.is_available():
+                _device, _dtype = "npu", torch.float16
+        except ImportError:
+            pass
+        if _device == "cpu" and torch.cuda.is_available():
+            _device, _dtype = "cuda", torch.float16
+        log(f"    Device: {_device}")
+        from agent.config import get_model_path
+        _model_id = get_model_path("whisper-small")
+        if not os.path.isdir(_model_id):
+            _model_id = "openai/whisper-small"
+        try:
+            _proc = WhisperProcessor.from_pretrained(_model_id)
+            _wmodel = WhisperForConditionalGeneration.from_pretrained(_model_id)
         except Exception:
             os.environ.pop("HF_HUB_OFFLINE", None)
-            whisper = WhisperModel("small", device=_device, compute_type=_compute)
+            _proc = WhisperProcessor.from_pretrained(_model_id)
+            _wmodel = WhisperForConditionalGeneration.from_pretrained(_model_id)
         finally:
             os.environ.pop("HF_HUB_OFFLINE", None)
+        _wmodel = _wmodel.to(_device).to(_dtype)
+        _wmodel.eval()
         t0_asr = time.time()
-        segments_iter, info = whisper.transcribe(audio_path, vad_filter=True)
+        audio_np, _sr = librosa.load(audio_path, sr=16000)
+        input_features = _proc(audio_np, sampling_rate=16000, return_tensors="pt").input_features
+        input_features = input_features.to(_device).to(_dtype)
+        with torch.no_grad():
+            predicted_ids = _wmodel.generate(input_features, max_new_tokens=448, task="transcribe")
+        full_text = _proc.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
+        # Create a single segment for the transcribed text
         segs = []
-        for i, s in enumerate(segments_iter):
+        if full_text:
             segs.append(ASRSegment(
-                id=f"seg_{i:06d}", start=float(s.start), end=float(s.end),
-                text=s.text.strip(), confidence=getattr(s, "avg_logprob", None),
+                id="seg_000000", start=0.0, end=len(audio_np) / 16000,
+                text=full_text, confidence=None,
             ))
-        transcript = Transcript(segments=segs, language=getattr(info, "language", None))
-        log(f"    ASR: {len(transcript.segments)} segments, language={transcript.language}")
+        transcript = Transcript(segments=segs, language=None)
+        log(f"    ASR: {len(transcript.segments)} segments")
         for s in transcript.segments[:3]:
             log(f"      [{s.start:.1f}-{s.end:.1f}] {s.text[:60]}")
         if len(transcript.segments) > 3:

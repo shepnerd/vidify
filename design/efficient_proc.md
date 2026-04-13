@@ -1,0 +1,1 @@
+检查hico，internvl3.5的efficient处理是否纳入，即一些token merging的策略和一些动态的区域tokenization的策略。

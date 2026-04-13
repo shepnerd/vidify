@@ -7,8 +7,22 @@ _processor = None
 _model = None
 _emotion_detector = None
 
+
+def _detect_device():
+    """Pick best available device: NPU > CUDA > CPU."""
+    try:
+        import torch_npu  # noqa: F401
+        if torch.npu.is_available():
+            return torch.device("npu")
+    except ImportError:
+        pass
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def _get_audio_model():
-    """Lazy-init Wav2Vec2 emotion model (local cache or HF)."""
+    """Lazy-init Wav2Vec2 emotion model (local cache or HF). Supports NPU/CUDA/CPU."""
     global _processor, _model
     if _processor is None:
         from transformers import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
@@ -18,6 +32,9 @@ def _get_audio_model():
                     or "superb/wav2vec2-base-superb-er")
         _processor = Wav2Vec2Processor.from_pretrained(model_id)
         _model = Wav2Vec2ForSequenceClassification.from_pretrained(model_id)
+        # Move to best available device
+        device = _detect_device()
+        _model = _model.to(device)
     return _processor, _model
 
 def _get_visual_detector():

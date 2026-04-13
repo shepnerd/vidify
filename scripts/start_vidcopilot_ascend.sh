@@ -117,13 +117,13 @@ python3 -c "import click, openai, rich, yaml, faiss" 2>/dev/null || {
     # Only install what's missing in the image. Use --no-deps to prevent pulling in torch/vllm.
     pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
         --trusted-host pkg.pjlab.org.cn --no-cache-dir --no-deps \
-        rich click openai pydantic PyYAML requests faster-whisper faiss-cpu \
+        rich click openai pydantic PyYAML requests faiss-cpu \
         beautifulsoup4 soupsieve yt-dlp jinja2 aiofiles ffmpeg-python \
         uvicorn fastapi 2>/dev/null || true
     # These need deps but are safe (they won't pull torch)
     pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
         --trusted-host pkg.pjlab.org.cn --no-cache-dir \
-        faster-whisper faiss-cpu 2>/dev/null || true
+        faiss-cpu 2>/dev/null || true
 }
 
 # Ensure ffmpeg/ffprobe are available (needed for video processing)

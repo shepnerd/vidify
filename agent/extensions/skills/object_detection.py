@@ -27,7 +27,13 @@ def _get_model():
                 "ultralytics is required for object detection but is not installed. "
                 "Install it with: pip install vidcopilot[detection]"
             )
+        import os
+        # Prevent ultralytics from reaching the network on air-gapped clusters
+        os.environ.setdefault("YOLO_OFFLINE", "1")
         from ultralytics import YOLO
+        from ultralytics import settings as ul_settings
+        # Disable analytics and auto-update checks (avoids network calls)
+        ul_settings.update({"sync": False})
         _model = YOLO(get_model_path("yolov8n.pt"))
     return _model
 

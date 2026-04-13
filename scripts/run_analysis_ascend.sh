@@ -103,7 +103,7 @@ ok "Model: ${BOLD}${MODEL_PATH}${NC}"
 
 # ── Step 4: Verify local models (emotion, translation, ASR) ───────────────
 info "Checking local skill models..."
-for model_dir in models/wav2vec2-base-superb-er models/opus-mt-en-zh models/faster-whisper-small; do
+for model_dir in models/wav2vec2-base-superb-er models/opus-mt-en-zh models/whisper-small; do
     if [[ -d "$model_dir" ]]; then
         ok "  $(basename $model_dir) ✓"
     else

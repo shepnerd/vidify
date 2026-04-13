@@ -1,6 +1,6 @@
 asr:
   model: whisper
-  size: small                    # HF-managed: Systran/faster-whisper-small
+  size: small                    # HF transformers: openai/whisper-small (NPU/CUDA/CPU)
   language: null
 
 mllm:

@@ -1,5 +1,5 @@
 import os
-# Disable OneDNN/MKL-DNN to avoid conflicts with CTranslate2 (used by faster-whisper)
+# Disable OneDNN/MKL-DNN to avoid potential conflicts with PaddlePaddle
 os.environ["FLAGS_use_mkldnn"] = "0"
 
 import cv2
@@ -12,16 +12,6 @@ from typing import List, Dict, Any
 from agent.config import get_model_path
 
 _ocr = None
-_ctranslate2_loaded = False
-
-
-def _check_ctranslate2():
-    """Check if ctranslate2 has been loaded (e.g. by faster-whisper).
-    CTranslate2 corrupts OneDNN state for PaddlePaddle in the same process."""
-    global _ctranslate2_loaded
-    if not _ctranslate2_loaded:
-        _ctranslate2_loaded = "ctranslate2" in sys.modules
-    return _ctranslate2_loaded
 
 
 def _get_ocr():
@@ -78,11 +68,6 @@ def extract_text_from_frame(frame_path: str) -> List[Dict[str, Any]]:
     Returns:
         List[Dict]: 检测到的文本列表，每个包含文本、位置、置信度。
     """
-    # CTranslate2 (faster-whisper) corrupts OneDNN for PaddlePaddle.
-    # If it was loaded in this process, run OCR in a clean subprocess.
-    if _check_ctranslate2():
-        return _ocr_in_subprocess(frame_path)
-
     img = cv2.imread(frame_path)
     if img is None:
         return []
