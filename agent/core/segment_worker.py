@@ -54,13 +54,15 @@ def _pick_base_url(llm_base_url, segment_index: int) -> Optional[str]:
     return urls[segment_index % len(urls)]
 
 
-def _run_captioning(frames_dump, llm_model, llm_base_url, direct_model, model_path, tokenizer_path):
+def _run_captioning(frames_dump, llm_model, llm_base_url, direct_model, model_path,
+                    tokenizer_path, video_duration_sec):
     """Wrapper for caption_frames that takes/returns serializable data."""
     frames = FrameSet(**frames_dump)
     captioned = caption_frames(
         frames, llm_model, llm_base_url, batch_size=8,
         direct_model=direct_model, model_path=model_path,
         tokenizer_path=tokenizer_path,
+        video_duration_sec=video_duration_sec,
     )
     return captioned.model_dump()
 
@@ -137,7 +139,8 @@ def process_segment(
     if need_captioning:
         parallel_skills.append(("captioning", _safe_caption,
                                 (frames.model_dump(), llm_model, seg_base_url,
-                                 direct_model, model_path, tokenizer_path), {}))
+                                 direct_model, model_path, tokenizer_path,
+                                 getattr(getattr(asset, "metadata", None), "duration_sec", None)), {}))
 
     if frame_paths:
         parallel_skills.append(("ocr", _safe_ocr, (frame_paths,), {}))

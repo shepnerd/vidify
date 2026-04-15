@@ -89,6 +89,16 @@ def _parallel_asr_cfg(wf_cfg: dict) -> dict:
     return asr_cfg
 
 
+def _frame_strategy_params(wf_cfg: dict, max_frames: int, **extra) -> dict:
+    params = {
+        "max_frames": max_frames,
+        "adaptive_by_duration": wf_cfg.get('adaptive_frame_sampling', True),
+        "min_frames": wf_cfg.get('min_frames', 16),
+    }
+    params.update(extra)
+    return params
+
+
 def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
                           direct_model, model_path, tokenizer_path):
     """Process a single segment for brief workflow: sample frames + caption."""
@@ -110,6 +120,7 @@ def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
             seg_path, llm_model, seg_base_url,
             direct_model=direct_model, model_path=model_path,
             tokenizer_path=tokenizer_path,
+            source_duration_sec=asset.metadata.duration_sec,
         )
         for item in frames.items:
             item.ts += segment.start_sec
@@ -124,6 +135,7 @@ def _brief_segment_worker(segment, asset, strategy, llm_model, llm_base_url,
             frames, llm_model, seg_base_url, batch_size=8,
             direct_model=direct_model, model_path=model_path,
             tokenizer_path=tokenizer_path,
+            video_duration_sec=asset.metadata.duration_sec,
         )
     logger.info("[brief_segment] %s: done (%d frames)", seg_label, len(frames.items))
     return {"frames": frames.model_dump()}
@@ -225,7 +237,7 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
     def _make_strategy(mf=max_frames):
         if frame_strategy == "fps" and frame_fps is not None:
             return FrameStrategy(type="fps", params={"fps": frame_fps, "max_frames": mf})
-        return FrameStrategy(type="scene", params={"scene_threshold": 0.3, "max_frames": mf})
+        return FrameStrategy(type="scene", params=_frame_strategy_params(wf_cfg, mf, scene_threshold=0.3))
 
     if not sufficiency.is_sufficient:
         event_bus.emit_skill_start("Visual Captioning", progress_pct=35)
@@ -283,7 +295,8 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
         elif supports_video(llm_model):
             frames = caption_video_as_frameset(asset.local_path, llm_model, _primary_base_url(llm_base_url),
                                                direct_model=direct_model, model_path=model_path,
-                                               tokenizer_path=tokenizer_path)
+                                               tokenizer_path=tokenizer_path,
+                                               source_duration_sec=asset.metadata.duration_sec)
         else:
             # Original sequential path
             frames = sample_frames(
@@ -292,7 +305,8 @@ def wf_brief(asset, llm_base_url: str = None, llm_model: str = None, max_frames:
             )
             frames = caption_frames(frames, llm_model, _primary_base_url(llm_base_url), batch_size=8,
                                     direct_model=direct_model, model_path=model_path,
-                                    tokenizer_path=tokenizer_path)
+                                    tokenizer_path=tokenizer_path,
+                                    video_duration_sec=asset.metadata.duration_sec)
     else:
         logger.info("Transcript sufficient, skipping MLLM visual processing.")
         frames = FrameSet(items=[], strategy=FrameStrategy(type="skipped", params={}))

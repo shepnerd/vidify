@@ -73,7 +73,8 @@ def targeted_visual_lookup(asset, timestamps: list[tuple[float, float]],
     frameset = FrameSet(items=items, strategy=FrameStrategy(type="scene", params={"source": "targeted"}))
     captioned = caption_frames(frameset, llm_model, llm_base_url, batch_size=len(items),
                                direct_model=direct_model, model_path=model_path,
-                               tokenizer_path=tokenizer_path)
+                               tokenizer_path=tokenizer_path,
+                               video_duration_sec=getattr(getattr(asset, "metadata", None), "duration_sec", None))
     return captioned.items
 
 

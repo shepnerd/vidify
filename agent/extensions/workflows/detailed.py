@@ -112,6 +112,16 @@ def _parallel_asr_cfg(wf_cfg: dict) -> dict:
         ]
     return asr_cfg
 
+
+def _frame_strategy_params(wf_cfg: dict, max_frames: int, **extra) -> dict:
+    params = {
+        "max_frames": max_frames,
+        "adaptive_by_duration": wf_cfg.get('adaptive_frame_sampling', True),
+        "min_frames": wf_cfg.get('min_frames', 16),
+    }
+    params.update(extra)
+    return params
+
 def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
                 max_frames: int = None,
                 whisper_model: str = _UNSET,
@@ -172,7 +182,10 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     if frame_strategy == "fps" and frame_fps is not None:
         _frame_strat = FrameStrategy(type="fps", params={"fps": frame_fps, "max_frames": max_frames})
     else:
-        _frame_strat = FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+        _frame_strat = FrameStrategy(
+            type="scene",
+            params=_frame_strategy_params(wf_cfg, max_frames, scene_threshold=0.25),
+        )
 
     # Submit frame sampling (always needed for OCR/detection in detailed mode)
     frames_future = executor.submit(sample_frames, asset, frames_dir, _frame_strat)
@@ -358,14 +371,16 @@ def _run_sequential(asset, frames, sufficiency, llm_model, llm_base_url,
             _safe_caption_video = skill_guard("Video Captioning", optional=True, default=None)(
                 lambda: caption_video_as_frameset(asset.local_path, llm_model, _primary_base_url(llm_base_url),
                                                    direct_model=direct_model, model_path=model_path,
-                                                   tokenizer_path=tokenizer_path)
+                                                   tokenizer_path=tokenizer_path,
+                                                   source_duration_sec=asset.metadata.duration_sec)
             )
             parallel_skills.append(("captioning", _safe_caption_video, (), {}))
         else:
             _safe_caption = skill_guard("Frame Captioning", optional=True, default=None)(
                 lambda: caption_frames(frames, llm_model, _primary_base_url(llm_base_url), batch_size=8,
                                        direct_model=direct_model, model_path=model_path,
-                                       tokenizer_path=tokenizer_path)
+                                       tokenizer_path=tokenizer_path,
+                                       video_duration_sec=asset.metadata.duration_sec)
             )
             parallel_skills.append(("captioning", _safe_caption, (), {}))
     elif need_captioning:
@@ -432,7 +447,7 @@ def _run_parallel_segments(asset, meta, sufficiency, llm_model, llm_base_url,
         frames_dir = os.path.join(asset.cache_dir, "frames")
         frames = sample_frames(
             asset, frames_dir,
-            FrameStrategy(type="scene", params={"scene_threshold": 0.25, "max_frames": max_frames})
+            FrameStrategy(type="scene", params=_frame_strategy_params(wf_cfg, max_frames, scene_threshold=0.25))
         )
         return _run_sequential(
             asset=asset, frames=frames, sufficiency=sufficiency,
@@ -451,8 +466,8 @@ def _run_parallel_segments(asset, meta, sufficiency, llm_model, llm_base_url,
     # Distribute max_frames across segments proportionally
     per_seg_max_frames = max(8, max_frames // len(segments))
     strategy = FrameStrategy(type="scene", params={
+        **_frame_strategy_params(wf_cfg, per_seg_max_frames),
         "scene_threshold": 0.25,
-        "max_frames": per_seg_max_frames,
     })
 
     need_captioning = not sufficiency.is_sufficient

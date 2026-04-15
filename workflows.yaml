@@ -16,6 +16,8 @@ brief:
   force_visual: false
   prefer_subtitles_over_asr: true
   max_frames: 64
+  min_frames: 16
+  adaptive_frame_sampling: true
   output_format: "text"
   parallel_segments:
     enabled: false
@@ -54,6 +56,8 @@ detailed:
   force_visual: false
   prefer_subtitles_over_asr: true
   max_frames: 128
+  min_frames: 16
+  adaptive_frame_sampling: true
   max_parallel_skills: 3
   output_format: "json"
   # Parallel segment processing for long videos.
