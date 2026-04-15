@@ -37,6 +37,34 @@ def cli(ctx, config, log_format):
     ctx.obj['log_format'] = log_format
     setup_logging(log_format=log_format)
 
+
+@cli.group()
+def hermes():
+    """Hermes integration helpers."""
+
+
+@hermes.command("skill-path")
+def hermes_skill_path():
+    """Print the in-repo Hermes skill path."""
+    from agent.integrations.hermes import get_skill_source_dir
+
+    click.echo(str(get_skill_source_dir()))
+
+
+@hermes.command("install-skill")
+@click.option('--dest-root', default='~/.hermes/skills',
+              help='Hermes skills root directory')
+@click.option('--strategy', default='symlink', show_default=True,
+              type=click.Choice(['symlink', 'copy']),
+              help='Install by symlink or by copying files')
+@click.option('--force', is_flag=True, help='Replace an existing installation')
+def hermes_install_skill(dest_root, strategy, force):
+    """Install the Vidify Hermes skill into a Hermes skills directory."""
+    from agent.integrations.hermes import install_skill
+
+    installed_path = install_skill(dest_root=dest_root, strategy=strategy, force=force)
+    click.echo(str(installed_path))
+
 @cli.command()
 @click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
 @click.argument('uri')

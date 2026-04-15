@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`agent/` is the main package. Keep orchestration, schemas, retries, and parallel utilities in `agent/core/`; put reusable processing units in `agent/extensions/skills/`; compose user-facing modes in `agent/extensions/workflows/`. `server/` contains the FastAPI app, `templates/` backs the web UI, `tests/` holds the pytest suite, and `scripts/` contains model-serving and cluster helpers. Runtime artifacts belong in `cache/`; sample inputs live in `media/`.
+`agent/` is the main package. Keep orchestration, schemas, retries, and parallel utilities in `agent/core/`; put reusable processing units in `agent/extensions/skills/`; compose user-facing modes in `agent/extensions/workflows/`. External framework adapters belong in `agent/integrations/`. `server/` contains the FastAPI app, `templates/` backs the web UI, `tests/` holds the pytest suite, and `scripts/` contains model-serving and cluster helpers. Hermes skill assets live in `.agents/skills/`. Runtime artifacts belong in `cache/`; sample inputs live in `media/`.
 
 ## Build, Test, and Development Commands
 Install dependencies with:
@@ -20,6 +20,7 @@ Run the CLI locally:
 ```bash
 python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 python -m agent.main chat local media/example.mp4
+python -m agent.main hermes install-skill
 ```
 Start the API and web UI:
 ```bash

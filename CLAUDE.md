@@ -21,6 +21,7 @@ python setup.py install
 ```bash
 python -m agent.main analyze <source_type> <uri> [--mode brief|quick|detailed|highlights|index|ask|report|live] [--cache-root ./cache] [--max-frames 128]
 # source_type: youtube, url, local
+python -m agent.main hermes install-skill
 ```
 
 ### Run API server
@@ -95,6 +96,7 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 
 - **`agent/core/schemas.py`** — Pydantic models: `VideoAsset`, `FrameSet`, `Transcript`, `TimelineChapter`, `HighlightClip`, `AnalysisResult`, etc. All data flows through these types.
 - **`agent/core/orchestrator.py`** — Routes mode (brief/detailed/index/ask/highlights/report) to the corresponding workflow function.
+- **`agent/integrations/hermes.py`** — Stable Hermes-facing Python helpers plus a skill installer for `~/.hermes/skills`.
 - **`agent/core/segment.py`** — Parallel segment processing: `BaseSegmentor` ABC, `DurationSegmentor` (default, FFmpeg-based), `VideoSegment` model, result merge functions. Pluggable via `register_segmentor()` / `get_segmentor()` for future DL-based segmentors (e.g., TransNetV2, semantic boundary detection).
 - **`agent/core/segment_worker.py`** — Per-segment processing worker: runs frame sampling → captioning → OCR/detection/emotion for one time slice, called from `run_segments_parallel()`.
 - **`agent/core/parallel.py`** — `run_skills_parallel()` for concurrent skill execution within a segment; `run_segments_parallel()` for concurrent segment processing across a long video. Both use ThreadPoolExecutor with error isolation.
@@ -104,6 +106,7 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 - **`agent/extensions/models/`** — Model interface layer. `vllm_openai_client.py` wraps the OpenAI SDK to talk to vLLM; `direct_model_loader.py` loads models locally without a server.
 - **`agent/config.py`** — Config loader with precedence: CLI params > YAML files (`models.yaml`, `workflows.yaml`) > built-in defaults. Default LLM endpoint is `http://localhost:8000/v1`.
 - **`server/app.py`** — FastAPI REST API (endpoints: `/analyze`, `/index`, `/ask`, `/highlights`, `/report`, `/health`).
+- **`.agents/skills/media/vidify/`** — Hermes-native skill directory and wrappers Hermes can consume directly from the repo.
 
 ### Cache structure
 Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, highlight clips, and parallel segment sub-caches (`segments/seg_000/`, etc.).

@@ -38,6 +38,18 @@ pip install -r requirements.txt
 # System deps: ffmpeg, yt-dlp, Python 3.11+
 ```
 
+### 1.5 Hermes
+
+This repo ships a Hermes-native skill at `.agents/skills/media/vidify`, so Hermes can use Vidify directly from this checkout as a project-local skill.
+
+Install it into your user-level Hermes skills directory with:
+
+```bash
+python -m agent.main hermes install-skill
+```
+
+That installs into `~/.hermes/skills/media/vidify` by symlink by default. Use `--strategy copy` if you want a standalone copy instead.
+
 ### 2. Configure cluster environment (GPU cluster only)
 
 ```bash
@@ -95,6 +107,9 @@ python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mod
 
 # With structured JSON logging
 python -m agent.main --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
+
+# Install the Hermes skill into ~/.hermes/skills/media/vidify
+python -m agent.main hermes install-skill
 ```
 
 **REST API:**
@@ -147,6 +162,17 @@ python -m agent.main analyze local webcam --mode live
 # Live stream from RTMP/HTTP URL
 python -m agent.main analyze local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
 ```
+
+## Hermes
+
+Vidify supports Hermes in two ways:
+
+1. Native skill integration through `.agents/skills/media/vidify`
+2. Stable Python helpers in `agent.integrations.hermes`
+
+The Hermes wrappers prefer the installed `vidify` CLI, but they also fall back to `python -m agent.main` from this repo, which makes source-checkout use straightforward.
+
+If you are migrating an older OpenClaw setup, this repo still ships the `openclaw/` skill as well.
 
 ### Processing Flow
 
