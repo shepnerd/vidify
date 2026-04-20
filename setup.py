@@ -14,6 +14,11 @@ setup(
     install_requires=requirements,
     extras_require={
         "detection": ["ultralytics>=8.0.0"],
+        "mra": [
+            "opencv-python>=4.8.0",
+            "Pillow>=10.0.0",
+            "ultralytics>=8.0.0",
+        ],
         "dev": ["pytest>=7.0.0", "pytest-asyncio>=0.21.0"],
     },
     entry_points={

@@ -85,10 +85,19 @@ def _score_review_groundedness(review: ClaimReview,
     span = review.time_span
 
     if et == "visual_ambiguity":
-        # Check: do frames in span have low detection confidence?
+        # Use real frame quality metrics when available, else fall back to
+        # detection confidence as proxy.
+        blur_score = _avg_blur_in_span(evidence, span)
         det_score = _avg_detection_conf_in_span(evidence, span)
-        # Lower detection conf = more grounded claim of ambiguity
-        return 1.0 - det_score if det_score > 0 else 0.4
+        if blur_score is not None:
+            # blur_score is Laplacian variance; <100 is blurry
+            # Normalise: 0 → 1.0 (very blurry), 500+ → 0.0 (sharp)
+            norm_blur = _clamp(1.0 - blur_score / 500.0)
+            brightness_penalty = _brightness_penalty_in_span(evidence, span)
+            det_part = (1.0 - det_score) if det_score > 0 else 0.3
+            return 0.4 * norm_blur + 0.3 * det_part + 0.3 * brightness_penalty
+        else:
+            return (1.0 - det_score) if det_score > 0 else 0.4
 
     elif et == "temporal_boundary_error":
         # Check: is the span near frame boundaries? Are frames sparse?
@@ -214,6 +223,52 @@ def _avg_detection_conf_in_span(evidence: EvidenceBundle,
         if "avg_det_conf" in meta:
             confs.append(meta["avg_det_conf"])
     return sum(confs) / len(confs) if confs else 0.0
+
+
+def _avg_blur_in_span(evidence: EvidenceBundle,
+                       span: list[float] | None) -> float | None:
+    """Average blur (Laplacian variance) for frames in a span.
+
+    Returns None if no blur data is available (cv2 was not installed when
+    evidence was collected).
+    """
+    values = []
+    for fid, meta in evidence.frame_meta.items():
+        ts = meta.get("ts", 0)
+        if span and not (span[0] <= ts <= span[1]):
+            continue
+        if "blur" in meta:
+            values.append(meta["blur"])
+    return sum(values) / len(values) if values else None
+
+
+def _brightness_penalty_in_span(evidence: EvidenceBundle,
+                                 span: list[float] | None) -> float:
+    """Score how problematic brightness is in a span.
+
+    Returns 0.0 (fine) to 1.0 (very dark or overexposed).
+    """
+    values = []
+    for fid, meta in evidence.frame_meta.items():
+        ts = meta.get("ts", 0)
+        if span and not (span[0] <= ts <= span[1]):
+            continue
+        if "brightness" in meta:
+            values.append(meta["brightness"])
+    if not values:
+        return 0.3  # unknown → mild penalty
+
+    avg_b = sum(values) / len(values)
+    # Ideal brightness around 100-160; penalise extremes
+    if avg_b < 40:
+        return 0.9  # very dark
+    elif avg_b < 70:
+        return 0.5
+    elif avg_b > 220:
+        return 0.7  # overexposed
+    elif avg_b > 190:
+        return 0.3
+    return 0.1  # good range
 
 
 def _temporal_boundary_uncertainty(evidence: EvidenceBundle,

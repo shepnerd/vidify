@@ -15,13 +15,23 @@ Vidify is a video understanding agent that takes a video source (YouTube URL, HT
 pip install -r requirements.txt
 # or
 python setup.py install
+
+# MRA perception extras (needed for frame quality metrics, zoom crop, re-detection):
+pip install vidify[mra]          # opencv-python, Pillow, ultralytics (YOLO)
+# Or individually: pip install opencv-python Pillow ultralytics
+# Note: MRA works without these (falls back to caption-based proxies), but
+# real blur/brightness/contrast metrics and zoom_region/rerun_detector
+# interventions require them.
 ```
 
 ### Run CLI
 ```bash
-python -m agent.main analyze <source_type> <uri> [--mode brief|quick|detailed|highlights|index|ask|report|live] [--cache-root ./cache] [--max-frames 128]
+python -m agent.main analyze <source_type> <uri> [--mode brief|quick|detailed|highlights|index|ask|report|live|audit] [--cache-root ./cache] [--max-frames 128]
 # source_type: youtube, url, local
 python -m agent.main hermes install-skill
+
+# MRA audit mode — runs base analysis then meta-reflective audit
+python -m agent.main analyze local video.mp4 --mode audit
 ```
 
 ### Run API server
@@ -95,7 +105,7 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 ### Key layers
 
 - **`agent/core/schemas.py`** — Pydantic models: `VideoAsset`, `FrameSet`, `Transcript`, `TimelineChapter`, `HighlightClip`, `AnalysisResult`, etc. All data flows through these types.
-- **`agent/core/orchestrator.py`** — Routes mode (brief/detailed/index/ask/highlights/report) to the corresponding workflow function.
+- **`agent/core/orchestrator.py`** — Routes mode (brief/detailed/index/ask/highlights/report/audit) to the corresponding workflow function.
 - **`agent/integrations/hermes.py`** — Stable Hermes-facing Python helpers plus a skill installer for `~/.hermes/skills`.
 - **`agent/core/segment.py`** — Parallel segment processing: `BaseSegmentor` ABC, `DurationSegmentor` (default, FFmpeg-based), `VideoSegment` model, result merge functions. Pluggable via `register_segmentor()` / `get_segmentor()` for future DL-based segmentors (e.g., TransNetV2, semantic boundary detection).
 - **`agent/core/segment_worker.py`** — Per-segment processing worker: runs frame sampling → captioning → OCR/detection/emotion for one time slice, called from `run_segments_parallel()`.
@@ -107,9 +117,10 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 - **`agent/config.py`** — Config loader with precedence: CLI params > YAML files (`models.yaml`, `workflows.yaml`) > built-in defaults. Default LLM endpoint is `http://localhost:8000/v1`.
 - **`server/app.py`** — FastAPI REST API (endpoints: `/analyze`, `/index`, `/ask`, `/highlights`, `/report`, `/health`).
 - **`.agents/skills/media/vidify/`** — Hermes-native skill directory and wrappers Hermes can consume directly from the repo.
+- **`agent/extensions/mra/`** — Meta-Reflective Auditor (MRA): a second-order audit module that validates the agent's own self-assessment. Runs a base analysis, generates a structured LLM reflection, scores it against evidence (rule-based), optionally executes targeted interventions (dense resample, zoom crop, re-detect, evidence-only re-reasoning), and produces a final accept/revise/abstain decision. Entry point: `runner.py:run_with_meta_reflection()`. See `design/meta_refective_auditor_impl.md` for the full design.
 
 ### Cache structure
-Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, highlight clips, and parallel segment sub-caches (`segments/seg_000/`, etc.).
+Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, highlight clips, and parallel segment sub-caches (`segments/seg_000/`, etc.). MRA writes `mra_audit.json` and intervention frames under `mra_frames/`.
 
 ### Parallel segment processing
 For long videos (configurable, default >5 min), the `detailed` and `brief` workflows split the video into temporal segments and process them concurrently:
@@ -128,6 +139,7 @@ Long audio can also use parallel ASR:
 ### Workflow dependencies
 - `index` and `highlights` require a completed analysis (brief or detailed); they auto-run one if missing.
 - `ask` requires an index; it auto-builds one if missing.
+- `audit` runs a base analysis (brief by default, configurable via `workflows.yaml` → `audit.base_mode`), then layers the MRA loop on top. Does not require index.
 
 ### Model interfaces
 All LLM/embedding calls go through the OpenAI SDK pointed at a vLLM server (`/v1/chat/completions`, `/v1/embeddings`). Default model is Qwen3.5-9B (multimodal, unified VL). For Qwen3.5, thinking mode is disabled in pipeline calls via `enable_thinking: False` (see `agent/extensions/models/thinking.py`). Other models (Whisper, PaddleOCR, YOLOv8, Wav2Vec2) are loaded directly via their respective libraries.

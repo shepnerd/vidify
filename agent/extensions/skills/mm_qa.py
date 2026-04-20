@@ -21,7 +21,8 @@ def video_frames_qa(frame_items, question: str,
         f"问题：{question}"
     )}]
     for it in imgs:
-        content.append({"type": "image_url", "image_url": {"url": it.path}})
+        url = it.path if it.path.startswith(("http://", "https://", "file://", "data:")) else f"file://{it.path}"
+        content.append({"type": "image_url", "image_url": {"url": url}})
         content.append({"type": "text", "text": f"(frame_id={it.id}, ts={it.ts:.1f}s)"})
 
     extra = extra_body or {}

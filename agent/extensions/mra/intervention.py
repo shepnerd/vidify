@@ -125,14 +125,18 @@ def _do_dense_frame_resample(asset: Any, span: list | None,
             frames, llm_model, llm_base_url, batch_size=8,
         )
 
-        # Merge into evidence
+        # Merge into evidence with quality metrics
+        from agent.extensions.mra.evidence_collector import estimate_frame_quality
         for item in frames.items:
             fid = f"mra_dense_{item.id}"
+            quality = estimate_frame_quality(item.path)
             updated.frame_meta[fid] = {
                 "ts": item.ts,
+                "path": item.path,
                 "has_caption": item.caption is not None,
                 "caption_len": len(item.caption) if item.caption else 0,
                 "source": "dense_resample",
+                **quality,
             }
 
         logger.info("Dense resample: added %d frames in span [%.1f, %.1f]",
@@ -205,12 +209,16 @@ def _do_zoom_region(asset: Any, span: list | None,
             )
             zoomed_fs = caption_frames(zoomed_fs, llm_model, llm_base_url, batch_size=4)
 
+            from agent.extensions.mra.evidence_collector import estimate_frame_quality
             for item in zoomed_fs.items:
+                quality = estimate_frame_quality(item.path) if os.path.exists(item.path) else {}
                 updated.frame_meta[item.id] = {
                     "ts": item.ts,
+                    "path": item.path,
                     "has_caption": item.caption is not None,
                     "caption_len": len(item.caption) if item.caption else 0,
                     "source": "zoom_region",
+                    **quality,
                 }
 
             logger.info("Zoom region: added %d cropped frames", len(zoomed_items))
@@ -353,16 +361,15 @@ def _visual_rereason(query: str | None,
         from agent.extensions.skills.mm_qa import video_frames_qa
         from agent.core.schemas import FrameItem
 
-        # Collect intervention frames
+        # Collect intervention frames that have actual paths on disk
         intervention_frames = []
         for fid, meta in evidence.frame_meta.items():
             source = meta.get("source", "")
-            if source in ("dense_resample", "zoom_region"):
-                # Need to find the actual path — stored during intervention
-                # For now, use the frame id pattern
+            path = meta.get("path", "")
+            if source in ("dense_resample", "zoom_region") and path and os.path.isfile(path):
                 intervention_frames.append(FrameItem(
                     id=fid, ts=meta.get("ts", 0),
-                    path=meta.get("path", ""),
+                    path=path,
                     caption=None,
                 ))
 

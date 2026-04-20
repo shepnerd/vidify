@@ -24,6 +24,9 @@ from agent.extensions.mra.prompts import (
 )
 from agent.extensions.mra.reflector import _parse_reflection, _fallback_reflection
 from agent.extensions.mra.intervention import select_best_intervention
+from agent.extensions.mra.evidence_collector import (
+    estimate_frame_quality, estimate_motion_proxy,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1307,3 +1310,244 @@ class TestMRAResultSerialization:
         d = result.model_dump()
         assert d["reflection"] is None
         assert d["delta"] is None
+
+
+# ---------------------------------------------------------------------------
+# Frame quality estimation tests
+# ---------------------------------------------------------------------------
+
+class TestFrameQualityEstimation:
+    """Tests for real frame quality metrics (blur, brightness, contrast).
+
+    These tests work both with and without cv2 installed — they verify
+    correct behaviour in both environments.
+    """
+
+    def test_estimate_nonexistent_file(self):
+        result = estimate_frame_quality("/nonexistent/file.jpg")
+        assert result == {}
+
+    def test_estimate_frame_quality_returns_dict(self, tmp_path):
+        """When cv2 IS available, quality dict has blur/brightness/contrast/edge_density."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("cv2 not installed on this node")
+
+        # Create a real test image: gradient (sharp, good brightness)
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        for i in range(100):
+            img[i, :, :] = i * 2  # gradient
+        path = str(tmp_path / "test_frame.jpg")
+        cv2.imwrite(path, img)
+
+        result = estimate_frame_quality(path)
+        assert "blur" in result
+        assert "brightness" in result
+        assert "contrast" in result
+        assert "edge_density" in result
+        assert isinstance(result["blur"], float)
+        assert 0 <= result["brightness"] <= 255
+        assert result["contrast"] >= 0
+
+    def test_estimate_blurry_vs_sharp(self, tmp_path):
+        """Blurry images should have lower Laplacian variance than sharp ones."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("cv2 not installed on this node")
+
+        # Sharp: high-frequency checkerboard
+        sharp = np.zeros((100, 100), dtype=np.uint8)
+        sharp[::2, ::2] = 255
+        sharp[1::2, 1::2] = 255
+        sharp_path = str(tmp_path / "sharp.jpg")
+        cv2.imwrite(sharp_path, sharp)
+
+        # Blurry: heavily Gaussian-blurred version
+        blurry = cv2.GaussianBlur(sharp, (31, 31), 10)
+        blurry_path = str(tmp_path / "blurry.jpg")
+        cv2.imwrite(blurry_path, blurry)
+
+        q_sharp = estimate_frame_quality(sharp_path)
+        q_blurry = estimate_frame_quality(blurry_path)
+        assert q_sharp["blur"] > q_blurry["blur"]
+
+    def test_motion_proxy_identical_frames(self, tmp_path):
+        """Identical frames should have near-zero motion."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("cv2 not installed on this node")
+
+        img = np.full((50, 50, 3), 128, dtype=np.uint8)
+        p1 = str(tmp_path / "a.jpg")
+        p2 = str(tmp_path / "b.jpg")
+        cv2.imwrite(p1, img)
+        cv2.imwrite(p2, img)
+
+        motion = estimate_motion_proxy(p1, p2)
+        assert motion >= 0
+        assert motion < 1.0  # should be nearly zero
+
+    def test_motion_proxy_different_frames(self, tmp_path):
+        """Very different frames should have high motion score."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("cv2 not installed on this node")
+
+        black = np.zeros((50, 50, 3), dtype=np.uint8)
+        white = np.full((50, 50, 3), 255, dtype=np.uint8)
+        p1 = str(tmp_path / "black.jpg")
+        p2 = str(tmp_path / "white.jpg")
+        cv2.imwrite(p1, black)
+        cv2.imwrite(p2, white)
+
+        motion = estimate_motion_proxy(p1, p2)
+        assert motion > 100  # should be very high
+
+    def test_motion_proxy_missing_file(self):
+        result = estimate_motion_proxy("/no/a.jpg", "/no/b.jpg")
+        assert result == -1.0
+
+    def test_estimate_quality_no_cv2(self):
+        """When cv2 is not available, estimate_frame_quality returns empty dict."""
+        import agent.extensions.mra.evidence_collector as ec
+        original = ec._HAS_CV2
+        try:
+            ec._HAS_CV2 = False
+            result = ec.estimate_frame_quality("/any/path.jpg")
+            assert result == {}
+
+            motion = ec.estimate_motion_proxy("/a.jpg", "/b.jpg")
+            assert motion == -1.0
+        finally:
+            ec._HAS_CV2 = original
+
+
+class TestEvidenceEnrichment:
+    """Test that evidence collection enriches frame_meta with quality metrics."""
+
+    def test_enrichment_with_real_images(self, tmp_path):
+        """When frame files exist and cv2 is available, quality metrics are added."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            pytest.skip("cv2 not installed on this node")
+
+        # Create a real frame image
+        img = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        frame_path = str(tmp_path / "f_0000.jpg")
+        cv2.imwrite(frame_path, img)
+
+        result = {
+            "frames": {
+                "items": [{"id": "f_0000", "ts": 5.0, "path": frame_path, "caption": "something"}],
+                "strategy": {"type": "scene", "params": {}},
+            },
+        }
+        base = BaseOutput(answer="test", claims=[])
+        asset = MagicMock()
+        asset.cache_dir = str(tmp_path)
+
+        evidence = collect_evidence(asset, base, result, {})
+        fmeta = evidence.frame_meta["f_0000"]
+
+        assert "blur" in fmeta
+        assert "brightness" in fmeta
+        assert "contrast" in fmeta
+        assert "edge_density" in fmeta
+        assert fmeta["has_caption"] is True
+
+    def test_enrichment_without_cv2(self):
+        """When cv2 is not available, frame_meta has caption info but no quality metrics."""
+        import agent.extensions.mra.evidence_collector as ec
+        original = ec._HAS_CV2
+        try:
+            ec._HAS_CV2 = False
+            result = {
+                "frames": {
+                    "items": [{"id": "f_0000", "ts": 0, "path": "/tmp/x.jpg", "caption": "hello"}],
+                    "strategy": {"type": "scene", "params": {}},
+                },
+            }
+            base = BaseOutput(answer="test", claims=[])
+            asset = MagicMock()
+            asset.cache_dir = "/tmp"
+
+            evidence = collect_evidence(asset, base, result, {})
+            fmeta = evidence.frame_meta["f_0000"]
+
+            assert "blur" not in fmeta
+            assert fmeta["has_caption"] is True
+            assert fmeta["caption_len"] == 5
+        finally:
+            ec._HAS_CV2 = original
+
+    def test_summarize_with_blur_data(self):
+        """Summary includes blur stats when available."""
+        evidence = EvidenceBundle(
+            frame_meta={
+                "f1": {"ts": 0, "has_caption": True, "caption_len": 10,
+                       "blur": 50.0, "brightness": 120.0},
+                "f2": {"ts": 5, "has_caption": True, "caption_len": 20,
+                       "blur": 300.0, "brightness": 130.0},
+            },
+        )
+        summary = summarize_evidence(evidence)
+        assert "Frame quality (blur)" in summary
+        assert "low-quality=1" in summary  # f1 has blur=50 < 100
+        assert "Brightness" in summary
+
+
+class TestAuditorWithRealMetrics:
+    """Test that auditor scoring uses real blur/brightness when available."""
+
+    def test_visual_ambiguity_with_blur_data(self):
+        """When blur data is present, groundedness uses it instead of detection proxy."""
+        from agent.extensions.mra.auditor import score_groundedness
+
+        # Blurry frames in span — should strongly support visual_ambiguity claim
+        evidence = EvidenceBundle(
+            frame_meta={
+                "f1": {"ts": 10, "blur": 30.0, "brightness": 45.0},   # very blurry + dark
+                "f2": {"ts": 15, "blur": 50.0, "brightness": 55.0},   # blurry
+            },
+        )
+        reflection = ReflectionOutput(
+            overall_self_confidence=0.6,
+            claim_reviews=[ClaimReview(
+                claim_id="c1", error_type="visual_ambiguity",
+                time_span=[8, 18], proposed_fix=["zoom_region"],
+            )],
+            global_risk="medium",
+        )
+        score = score_groundedness(reflection, evidence)
+        assert score > 0.6  # blurry + dark = well-grounded claim
+
+    def test_visual_ambiguity_sharp_frames(self):
+        """Sharp frames should yield low groundedness for visual_ambiguity."""
+        from agent.extensions.mra.auditor import score_groundedness
+
+        evidence = EvidenceBundle(
+            frame_meta={
+                "f1": {"ts": 10, "blur": 800.0, "brightness": 130.0},  # very sharp
+                "f2": {"ts": 15, "blur": 900.0, "brightness": 140.0},  # very sharp
+            },
+        )
+        reflection = ReflectionOutput(
+            overall_self_confidence=0.6,
+            claim_reviews=[ClaimReview(
+                claim_id="c1", error_type="visual_ambiguity",
+                time_span=[8, 18], proposed_fix=["zoom_region"],
+            )],
+            global_risk="medium",
+        )
+        score = score_groundedness(reflection, evidence)
+        assert score < 0.4  # sharp frames → visual_ambiguity claim is NOT grounded

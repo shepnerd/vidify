@@ -39,6 +39,10 @@ def run_with_meta_reflection(asset: Any,
     mra_cfg = load_mra_config(workflows_config)
 
     llm_base_url = cfg.get("llm_base_url", "http://localhost:8000/v1")
+    # When running with pooled vLLM endpoints, the URL may be comma-separated;
+    # MRA only needs a single endpoint for its LLM calls.
+    if isinstance(llm_base_url, str) and "," in llm_base_url:
+        llm_base_url = llm_base_url.split(",")[0].strip()
     llm_model = cfg.get("llm_model", "qwen3.5-9b")
 
     # ── Step 1: Run base workflow ────────────────────────────────────
