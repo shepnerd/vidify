@@ -68,7 +68,7 @@ def hermes_install_skill(dest_root, strategy, force):
 @cli.command()
 @click.argument('source_type', type=click.Choice(['youtube', 'url', 'local']))
 @click.argument('uri')
-@click.option('--mode', default='detailed', type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'live']))
+@click.option('--mode', default='detailed', type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'live', 'audit']))
 @click.option('--cache-root', default='./cache')
 @click.option('--question', default=None)
 @click.option('--max-frames', type=int, default=128)
@@ -130,7 +130,7 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, whisp
         cfg['uri'] = click.prompt('Video URI', default=cfg['uri'])
         cfg['mode'] = normalize_mode(click.prompt(
             'Mode',
-            type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report']),
+            type=click.Choice(['brief', 'quick', 'detailed', 'highlights', 'index', 'ask', 'report', 'audit']),
             default=cfg['mode'],
         ))
         mode = cfg['mode']

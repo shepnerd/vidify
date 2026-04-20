@@ -161,5 +161,27 @@ def get_default_workflows_config() -> Dict[str, Any]:
             "similarity_threshold": 0.9,
             "min_segment_frames": 3,
             "max_segment_frames": 16
+        },
+        "audit": {
+            "base_mode": "brief",
+            "frame_stride": 4,
+            "max_intervention_rounds": 1,
+            "zoom_size": 336,
+            "meta_trust_accept": 0.75,
+            "meta_trust_uncertain": 0.45,
+            "min_claim_conf_for_reflect": 0.80,
+            "supported_error_types": [
+                "visual_ambiguity",
+                "temporal_boundary_error",
+                "tracking_failure",
+                "ocr_ambiguity",
+                "language_prior_bias",
+            ],
+            "supported_interventions": [
+                "dense_frame_resample",
+                "zoom_region",
+                "rerun_tracker_or_detector",
+                "evidence_only_rereason",
+            ],
         }
     }

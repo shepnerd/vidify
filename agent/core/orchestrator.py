@@ -79,6 +79,14 @@ def run(asset, mode: str, cfg: dict) -> dict:
                                    tokenizer_path=cfg.get("tokenizer_path"),
                                    google_api_key=cfg.get("google_api_key"),
                                    google_search_engine_id=cfg.get("google_search_engine_id"))
+        elif mode == "audit":
+            from agent.extensions.mra.runner import run_with_meta_reflection
+            result = run_with_meta_reflection(
+                asset=asset,
+                query=cfg.get("question"),
+                mode=mode,
+                cfg=cfg,
+            )
         elif mode == "live":
             from agent.extensions.workflows.live import wf_live
             result = wf_live(
