@@ -5,7 +5,6 @@ import logging
 import subprocess
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client, resolve_model_name
-from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.skills.persist import load_analysis
 from agent.extensions.skills.rag_faiss import search_faiss
 from agent.core.schemas import FrameItem, FrameSet, FrameStrategy
@@ -117,6 +116,7 @@ def wf_ask(asset, question: str,
         payload["visual_context"] = visual_context
 
     if direct_model:
+        from agent.extensions.models.direct_model_loader import make_direct_client
         client = make_direct_client(model_path, tokenizer_path)
         text = client.chat_with_images(llm_model, json.dumps(payload, ensure_ascii=False), [],
                                        max_tokens=800, temperature=0.2)

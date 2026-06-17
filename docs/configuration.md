@@ -11,12 +11,12 @@ Controls model selection and parameters for each processing skill.
 ```yaml
 mllm:
   heavy:
-    model_name: "qwen-vl-7b"
+    model_name: "qwen3.5-9b"
     base_url: "http://localhost:8000/v1"
     max_tokens: 512
     temperature: 0.7
   light:
-    model_name: "qwen-vl-1b"
+    model_name: "qwen3.5-4b"
     base_url: "http://localhost:8000/v1"
     max_tokens: 256
     temperature: 0.5
@@ -27,7 +27,7 @@ ocr:
   use_angle_cls: true
 
 object_detection:
-  model: "yolov8n.pt"
+  model: "models/yolov8n.pt"
   conf_threshold: 0.5
 
 asr:
@@ -36,13 +36,13 @@ asr:
   language: null          # null = auto-detect
 
 emotion_analysis:
-  audio_model: "wav2vec2-emotion"
+  audio_model: "models/wav2vec2-base-superb-er"
   visual_model: "fer"
 
 translation:
   source_lang: "en"
   target_lang: "zh"
-  model: "helsinki-nlp"
+  model: "models/opus-mt-en-zh"
 ```
 
 ### workflows.yaml

@@ -99,7 +99,7 @@ End-to-end demo: analyze → index → ask → highlights.
 
 ```bash
 python scripts/demo.py --youtube "https://www.youtube.com/watch?v=..." \
-    --llm-base-url http://localhost:8000/v1 --llm-model qwen-vl
+    --llm-base-url http://localhost:8000/v1 --llm-model qwen3.5-9b
 ```
 
 ### local_video_summary.py — Local Video Analysis

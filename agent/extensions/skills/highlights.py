@@ -3,7 +3,6 @@ import json
 import re
 from openai import OpenAI
 from agent.extensions.models.vllm_openai_client import make_client, _is_qwen35
-from agent.extensions.models.direct_model_loader import make_direct_client
 from agent.extensions.models.thinking import strip_thinking, make_no_thinking_extra_body
 from agent.core.schemas import HighlightClip
 
@@ -32,6 +31,7 @@ def detect_highlights(transcript, timeline: dict, model_name: str, base_url: str
                       model_path: str = None,
                       tokenizer_path: str = None) -> list[HighlightClip]:
     if direct_model:
+        from agent.extensions.models.direct_model_loader import make_direct_client
         client = make_direct_client(model_path, tokenizer_path)
         payload = {
             "task": "从时间线与转录中选取高光片段（信息密度高/关键结论/转折点）",

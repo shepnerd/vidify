@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from agent.extensions.skills.video_io import load_video
-from agent.workflows.detailed import wf_detailed
-from agent.workflows.brief import wf_brief
+from agent.extensions.workflows.detailed import wf_detailed
+from agent.extensions.workflows.brief import wf_brief
 
 def main():
     parser = argparse.ArgumentParser(description="Generate summary/description for a local video file.")
@@ -23,12 +23,16 @@ def main():
                         help="Analysis mode: brief (quick summary) or detailed (full analysis with ASR).")
     parser.add_argument("--max-frames", type=int, default=32, help="Maximum frames to sample.")
     parser.add_argument("--whisper-model", default=None, help="Whisper model size or local path. If None, skip ASR for offline processing.")
+    parser.add_argument("--llm-base-url", default="http://localhost:8000/v1", help="OpenAI-compatible LLM endpoint.")
+    parser.add_argument("--llm-model", default="qwen3.5-9b", help="Model name served by the LLM endpoint.")
     parser.add_argument("--direct-model", action="store_true", help="Use direct model loading.")
-    parser.add_argument("--model-path", default="/models/qwen-vl", help="Path to model for direct loading.")
+    parser.add_argument("--model-path", default=None, help="Path to model for direct loading. Required with --direct-model.")
     parser.add_argument("--tokenizer-path", help="Path to tokenizer (optional).")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.3, help="GPU memory utilization for vLLM (0.0-1.0).")
 
     args = parser.parse_args()
+    if args.direct_model and not args.model_path:
+        parser.error("--model-path is required with --direct-model")
 
     if not os.path.exists(args.video_path):
         print(f"Error: Video file not found: {args.video_path}")
@@ -41,8 +45,8 @@ def main():
     if args.mode == "detailed":
         result = wf_detailed(
             asset,
-            llm_base_url="http://localhost:8000/v1",  # Default, but will be overridden if direct_model
-            llm_model="qwen-vl",
+            llm_base_url=args.llm_base_url,
+            llm_model=args.llm_model,
             max_frames=args.max_frames,
             whisper_model=args.whisper_model,
             direct_model=args.direct_model,
@@ -52,8 +56,8 @@ def main():
     else:
         result = wf_brief(
             asset,
-            llm_base_url="http://localhost:8000/v1",
-            llm_model="qwen-vl",
+            llm_base_url=args.llm_base_url,
+            llm_model=args.llm_model,
             max_frames=args.max_frames,
             direct_model=args.direct_model,
             model_path=args.model_path,

@@ -33,7 +33,7 @@ def analyze_frame_heavy(frame_path: str, models_config: Dict[str, Any]) -> Dict[
     """Full analysis: MLLM caption + object detection + OCR."""
     from agent.extensions.skills.vision_caption import caption_frame
     heavy_cfg = models_config.get("mllm", {}).get("heavy", {})
-    model_name = heavy_cfg.get("model_name", "qwen-vl-7b")
+    model_name = heavy_cfg.get("model_name", "qwen3.5-9b")
     base_url = heavy_cfg.get("base_url", "http://localhost:8000/v1")
 
     caption = caption_frame(frame_path, model_name=model_name, base_url=base_url)
@@ -64,7 +64,7 @@ def analyze_frame_light(frame_path: str, models_config: Dict[str, Any]) -> Dict[
     """Lightweight analysis: small MLLM caption + OCR only."""
     from agent.extensions.skills.vision_caption import caption_frame
     light_cfg = models_config.get("mllm", {}).get("light", {})
-    model_name = light_cfg.get("model_name", "qwen-vl-1b")
+    model_name = light_cfg.get("model_name", "qwen3.5-4b")
     base_url = light_cfg.get("base_url", "http://localhost:8000/v1")
 
     caption = caption_frame(frame_path, model_name=model_name, base_url=base_url)

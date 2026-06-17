@@ -141,7 +141,7 @@ def wf_detailed(asset, llm_base_url: str = None, llm_model: str = None,
     if llm_base_url is None:
         llm_base_url = models_config.get('mllm', {}).get('heavy', {}).get('base_url', 'http://localhost:8000/v1')
     if llm_model is None:
-        llm_model = models_config.get('mllm', {}).get('heavy', {}).get('model_name', 'qwen-vl-7b')
+        llm_model = models_config.get('mllm', {}).get('heavy', {}).get('model_name', 'qwen3.5-9b')
     if max_frames is None:
         max_frames = wf_cfg.get('max_frames', 128)
     if whisper_model is _UNSET:

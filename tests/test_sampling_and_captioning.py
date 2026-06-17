@@ -78,3 +78,27 @@ def test_caption_frames_includes_duration_and_timestamps(monkeypatch):
     assert "f_0002=24.5s" in prompt
     assert result.items[0].caption == "first"
     assert result.items[1].caption == "second"
+
+
+def test_caption_frame_wraps_single_frame(monkeypatch):
+    captured = {}
+
+    def fake_caption_frames(frames, *args, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        frames.items[0].caption = "single caption"
+        return frames
+
+    monkeypatch.setattr(vision_caption, "caption_frames", fake_caption_frames)
+
+    caption = vision_caption.caption_frame(
+        "/tmp/frame.jpg",
+        model_name="qwen3.5-9b",
+        base_url="http://localhost:8000/v1",
+        ts=3.5,
+    )
+
+    assert caption == "single caption"
+    assert captured["frames"].items[0].path == "/tmp/frame.jpg"
+    assert captured["frames"].items[0].ts == 3.5
+    assert captured["kwargs"]["max_frames"] == 1

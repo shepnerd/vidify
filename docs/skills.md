@@ -50,10 +50,12 @@ Exports individual highlight clips and optionally concatenates them into a reel 
 
 ### vision_caption — Frame / Video Captioning
 ```python
+caption_frame(frame_path, model_name, base_url) -> str
 caption_frames(frames, model_name, base_url, ...) -> FrameSet
 caption_video(video_path, model_name, base_url, max_duration=60) -> list
 caption_video_as_frameset(video_path, ...) -> FrameSet
 ```
+- `caption_frame()` — convenience wrapper for one frame, used by live-stream processing
 - `caption_frames()` — batched frame captioning via multimodal model
 - `caption_video()` — direct video input captioning (Qwen3-VL native video support), auto-splits long videos into segments
 - Supports both vLLM and direct model loading
@@ -82,7 +84,7 @@ Combined audio (Wav2Vec2) + visual (FER) emotion analysis. Returns probability d
 ```python
 transcribe(audio_path, model_size="small") -> Transcript
 ```
-Uses Faster-Whisper with VAD filtering. Returns `Transcript` with segment-level timing, language detection, and confidence scores.
+Uses HuggingFace Transformers Whisper by default, with a local faster-whisper directory fallback when available. Returns `Transcript` with segment-level timing, language detection, and confidence scores.
 
 ### translation — Multi-language Translation
 ```python

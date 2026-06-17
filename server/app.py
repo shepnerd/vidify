@@ -21,8 +21,16 @@ from agent.extensions.workflows.highlights import wf_highlights
 from agent.extensions.skills.persist import load_analysis
 from agent.extensions.workflows.live import create_live_session
 from agent.core.events import event_bus, EventBus, Event
+from agent.config import get_default_config
+from agent.extensions.models.vllm_openai_client import resolve_model_name
 
 app = FastAPI(title="Video Agent Server", version="0.1.0")
+
+DEFAULT_CONFIG = get_default_config()
+DEFAULT_LLM_BASE_URL = DEFAULT_CONFIG["llm_base_url"]
+DEFAULT_LLM_MODEL = DEFAULT_CONFIG["llm_model"]
+DEFAULT_EMBED_BASE_URL = DEFAULT_CONFIG["embed_base_url"]
+DEFAULT_EMBED_MODEL = DEFAULT_CONFIG["embed_model"]
 
 # Create directories if not exist
 os.makedirs("static", exist_ok=True)
@@ -42,11 +50,11 @@ class AnalyzeReq(BaseModel):
     mode: Literal["brief", "quick", "detailed"] = "detailed"
     cache_root: str = "./cache"
 
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "qwen-vl"
+    llm_base_url: str = DEFAULT_LLM_BASE_URL
+    llm_model: str = DEFAULT_LLM_MODEL
 
     direct_model: bool = False
-    model_path: str = "/models/qwen-vl"
+    model_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
     max_frames: int = Field(default=128, ge=1, le=128)
@@ -59,16 +67,16 @@ class IndexReq(BaseModel):
     cache_root: str = "./cache"
 
     # 如果 analysis.json 不存在或缺少 asr/frames，会自动先跑 detailed（需要下面两个参数）
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "qwen-vl"
+    llm_base_url: str = DEFAULT_LLM_BASE_URL
+    llm_model: str = DEFAULT_LLM_MODEL
 
     direct_model: bool = False
-    model_path: str = "/models/qwen-vl"
+    model_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
     # embeddings（vLLM OpenAI-compatible 支持 /v1/embeddings）[1]
-    embed_base_url: str = "http://localhost:8000/v1"
-    embed_model: str = "qwen-embed"
+    embed_base_url: str = DEFAULT_EMBED_BASE_URL
+    embed_model: str = DEFAULT_EMBED_MODEL
 
     chunk_sec: int = Field(default=20, ge=5, le=120)
 
@@ -81,15 +89,15 @@ class AskReq(BaseModel):
     question: str
     top_k: int = Field(default=5, ge=1, le=20)
 
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "qwen-vl"
+    llm_base_url: str = DEFAULT_LLM_BASE_URL
+    llm_model: str = DEFAULT_LLM_MODEL
 
     direct_model: bool = False
-    model_path: str = "/models/qwen-vl"
+    model_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
-    embed_base_url: str = "http://localhost:8000/v1"
-    embed_model: str = "qwen-embed"
+    embed_base_url: str = DEFAULT_EMBED_BASE_URL
+    embed_model: str = DEFAULT_EMBED_MODEL
 
 
 class HighlightsReq(BaseModel):
@@ -97,11 +105,11 @@ class HighlightsReq(BaseModel):
     uri: str
     cache_root: str = "./cache"
 
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "qwen-vl"
+    llm_base_url: str = DEFAULT_LLM_BASE_URL
+    llm_model: str = DEFAULT_LLM_MODEL
 
     direct_model: bool = False
-    model_path: str = "/models/qwen-vl"
+    model_path: Optional[str] = None
     tokenizer_path: Optional[str] = None
 
     max_clips: int = Field(default=5, ge=1, le=20)
@@ -119,10 +127,10 @@ class LiveStartReq(BaseModel):
     stream_url: Optional[str] = None
     fps: int = Field(default=1, ge=1, le=30)
     heavy_interval: int = Field(default=5, ge=1, le=30)
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "qwen-vl"
-    embed_base_url: str = "http://localhost:8000/v1"
-    embed_model: str = "qwen-embed"
+    llm_base_url: str = DEFAULT_LLM_BASE_URL
+    llm_model: str = DEFAULT_LLM_MODEL
+    embed_base_url: str = DEFAULT_EMBED_BASE_URL
+    embed_model: str = DEFAULT_EMBED_MODEL
 
 
 class LiveAskReq(BaseModel):
@@ -150,6 +158,12 @@ def _as_http_error(e: Exception):
     return HTTPException(status_code=500, detail=str(e))
 
 
+def _resolve_llm_model(llm_model: str, llm_base_url: str, direct_model: bool = False) -> str:
+    if direct_model:
+        return llm_model
+    return resolve_model_name(llm_model, llm_base_url)
+
+
 # --------- Endpoints ---------
 
 @app.get("/health")
@@ -166,13 +180,14 @@ def analyze(req: AnalyzeReq):
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
     mode = normalize_mode(req.mode)
+    llm_model = _resolve_llm_model(req.llm_model, req.llm_base_url, req.direct_model)
 
     try:
         if mode == "brief":
-            out = wf_brief(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
+            out = wf_brief(asset, req.llm_base_url, llm_model, max_frames=req.max_frames)
         else:
             out = wf_detailed(
-                asset, req.llm_base_url, req.llm_model,
+                asset, req.llm_base_url, llm_model,
                 max_frames=req.max_frames,
                 whisper_model=req.whisper_model,
                 direct_model=req.direct_model,
@@ -191,10 +206,11 @@ def index(req: IndexReq):
     embeddings 使用 OpenAI-compatible /v1/embeddings [1]
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    llm_model = _resolve_llm_model(req.llm_model, req.llm_base_url, req.direct_model)
     try:
         rag = wf_index(
             asset,
-            llm_base_url=req.llm_base_url, llm_model=req.llm_model,
+            llm_base_url=req.llm_base_url, llm_model=llm_model,
             embed_base_url=req.embed_base_url, embed_model=req.embed_model,
             chunk_sec=req.chunk_sec,
             direct_model=req.direct_model,
@@ -212,10 +228,11 @@ def ask(req: AskReq):
     返回：answer + evidence（带时间区间、frame_ids、asr_segment_ids）+ hits
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    llm_model = _resolve_llm_model(req.llm_model, req.llm_base_url, req.direct_model)
     try:
         out = wf_ask(
             asset, req.question,
-            llm_base_url=req.llm_base_url, llm_model=req.llm_model,
+            llm_base_url=req.llm_base_url, llm_model=llm_model,
             embed_base_url=req.embed_base_url, embed_model=req.embed_model,
             top_k=req.top_k,
             direct_model=req.direct_model,
@@ -233,10 +250,11 @@ def highlights(req: HighlightsReq):
     若 analysis 不存在或缺少 asr/timeline，会自动补跑 detailed。
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
+    llm_model = _resolve_llm_model(req.llm_model, req.llm_base_url, req.direct_model)
     try:
         out = wf_highlights(
             asset,
-            llm_base_url=req.llm_base_url, llm_model=req.llm_model,
+            llm_base_url=req.llm_base_url, llm_model=llm_model,
             max_clips=req.max_clips,
             also_make_reel=req.also_make_reel,
             direct_model=req.direct_model,
@@ -275,7 +293,7 @@ async def upload_video(request: Request, file: UploadFile = File(...), mode: str
     result = run(
         asset,
         normalize_mode(mode),
-        {"llm_base_url": "http://localhost:8000/v1", "llm_model": "qwen-vl"},
+        {"llm_base_url": DEFAULT_LLM_BASE_URL, "llm_model": DEFAULT_LLM_MODEL},
     )
 
     return templates.TemplateResponse("result.html", {"request": request, "result": result})
@@ -293,6 +311,7 @@ def analyze_stream(req: AnalyzeReq):
     """
     asset = _get_asset(req.source_type, req.uri, req.cache_root)
     mode = normalize_mode(req.mode)
+    llm_model = _resolve_llm_model(req.llm_model, req.llm_base_url, req.direct_model)
     q: queue.Queue = queue.Queue()
 
     def _event_to_queue(event: Event):
@@ -301,10 +320,10 @@ def analyze_stream(req: AnalyzeReq):
     def _run_analysis():
         try:
             if mode == "brief":
-                result = wf_brief(asset, req.llm_base_url, req.llm_model, max_frames=req.max_frames)
+                result = wf_brief(asset, req.llm_base_url, llm_model, max_frames=req.max_frames)
             else:
                 result = wf_detailed(
-                    asset, req.llm_base_url, req.llm_model,
+                    asset, req.llm_base_url, llm_model,
                     max_frames=req.max_frames,
                     whisper_model=req.whisper_model,
                     direct_model=req.direct_model,
@@ -353,7 +372,7 @@ def live_start(req: LiveStartReq):
         "fps": req.fps,
         "heavy_interval": req.heavy_interval,
         "llm_base_url": req.llm_base_url,
-        "llm_model": req.llm_model,
+        "llm_model": _resolve_llm_model(req.llm_model, req.llm_base_url),
         "embed_base_url": req.embed_base_url,
         "embed_model": req.embed_model,
     }

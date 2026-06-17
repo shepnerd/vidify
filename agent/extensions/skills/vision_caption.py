@@ -175,6 +175,33 @@ def caption_frames(frames, model_name: str, base_url: str,
     frames.items[:len(items)] = items
     return frames
 
+
+def caption_frame(frame_path: str, model_name: str, base_url: str,
+                  frame_id: str = "f_000000", ts: float = 0.0,
+                  direct_model: bool = False, model_path: str = None,
+                  tokenizer_path: str = None,
+                  video_duration_sec: float = None) -> str:
+    """Caption a single frame path and return the caption text."""
+    from agent.core.schemas import FrameItem, FrameSet, FrameStrategy
+
+    frames = FrameSet(
+        items=[FrameItem(id=frame_id, ts=ts, path=frame_path)],
+        strategy=FrameStrategy(type="scene", params={"source": "single_frame"}),
+    )
+    captioned = caption_frames(
+        frames,
+        model_name=model_name,
+        base_url=base_url,
+        max_frames=1,
+        batch_size=1,
+        direct_model=direct_model,
+        model_path=model_path,
+        tokenizer_path=tokenizer_path,
+        video_duration_sec=video_duration_sec,
+        sampled_frame_count=1,
+    )
+    return captioned.items[0].caption or ""
+
 def caption_video(video_path: str, model_name: str, base_url: str, max_duration: int = 60,
                   direct_model: bool = False, model_path: str = None, tokenizer_path: str = None,
                   source_duration_sec: float = None) -> list:

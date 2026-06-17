@@ -31,7 +31,7 @@ curl -X POST http://localhost:9000/analyze \
     "mode": "detailed",
     "cache_root": "./cache",
     "llm_base_url": "http://localhost:8000/v1",
-    "llm_model": "qwen-vl",
+    "llm_model": "qwen3.5-9b",
     "max_frames": 128,
     "whisper_model": "small"
   }'
@@ -44,11 +44,11 @@ curl -X POST http://localhost:9000/analyze \
 | `mode` | `brief\|quick\|detailed` | `detailed` | Analysis depth (`quick` is a legacy alias for `brief`) |
 | `cache_root` | string | `./cache` | Cache directory |
 | `llm_base_url` | string | `http://localhost:8000/v1` | vLLM endpoint |
-| `llm_model` | string | `qwen-vl` | Model name |
+| `llm_model` | string | `qwen3.5-9b` | Model name |
 | `max_frames` | int (1-128) | 128 | Max frames to sample |
 | `whisper_model` | string | `small` | Whisper model size |
 | `direct_model` | bool | false | Use local model loading |
-| `model_path` | string | `/models/qwen-vl` | Path for direct model |
+| `model_path` | string | `null` | Path for direct model; required when `direct_model` is true |
 
 #### `POST /index`
 Build FAISS semantic index (requires prior analysis or auto-generates one).
@@ -61,7 +61,7 @@ curl -X POST http://localhost:9000/index \
     "uri": "https://www.youtube.com/watch?v=XXXX",
     "cache_root": "./cache",
     "llm_base_url": "http://localhost:8000/v1",
-    "llm_model": "qwen-vl",
+    "llm_model": "qwen3.5-9b",
     "embed_base_url": "http://localhost:8000/v1",
     "embed_model": "qwen-embed",
     "chunk_sec": 20
@@ -87,7 +87,7 @@ curl -X POST http://localhost:9000/ask \
     "question": "What are the key conclusions?",
     "top_k": 5,
     "llm_base_url": "http://localhost:8000/v1",
-    "llm_model": "qwen-vl",
+    "llm_model": "qwen3.5-9b",
     "embed_base_url": "http://localhost:8000/v1",
     "embed_model": "qwen-embed"
   }'
@@ -109,7 +109,7 @@ curl -X POST http://localhost:9000/highlights \
     "uri": "https://www.youtube.com/watch?v=XXXX",
     "cache_root": "./cache",
     "llm_base_url": "http://localhost:8000/v1",
-    "llm_model": "qwen-vl",
+    "llm_model": "qwen3.5-9b",
     "max_clips": 5,
     "also_make_reel": true
   }'
@@ -158,13 +158,13 @@ python -m agent.main analyze SOURCE_TYPE URI [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--mode` | `detailed` | `brief`, `detailed`, `highlights`, `index`, `ask`, `report` |
+| `--mode` | `detailed` | `brief`, `quick`, `detailed`, `highlights`, `index`, `ask`, `report`, `live`, `audit` |
 | `--cache-root` | `./cache` | Cache directory |
 | `--question` | — | Question for `ask` mode |
 | `--max-frames` | 128 | Maximum frames to sample |
 | `--interactive` | false | Interactive prompt mode |
 | `--direct-model` | false | Use local model loading |
-| `--model-path` | `/models/qwen-vl` | Model path for direct loading |
+| `--model-path` | — | Model path for direct loading |
 | `--include-web-search` | false | Enable web search enhancement |
 | `--google-api-key` | — | Google Custom Search API key |
 | `--google-search-engine-id` | — | Google Custom Search engine ID |
@@ -184,7 +184,7 @@ python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mod
 
 # Local video with direct model
 python -m agent.main analyze local /path/to/video.mp4 --mode detailed --direct-model \
-    --model-path /path/to/qwen-vl
+    --model-path /path/to/qwen3.5
 
 # Generate report
 python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode report

@@ -15,7 +15,7 @@ def main():
     ap.add_argument("--cache-root", default="./cache")
 
     ap.add_argument("--llm-base-url", default="http://localhost:8000/v1")
-    ap.add_argument("--llm-model", default="qwen-vl")
+    ap.add_argument("--llm-model", default="qwen3.5-9b")
 
     ap.add_argument("--embed-base-url", default="http://localhost:8000/v1")
     ap.add_argument("--embed-model", default="qwen-embed")

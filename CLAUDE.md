@@ -117,7 +117,7 @@ CLI/API request → load_video() → run() orchestrator → wf_<mode>() workflow
 - **`agent/config.py`** — Config loader with precedence: CLI params > YAML files (`models.yaml`, `workflows.yaml`) > built-in defaults. Default LLM endpoint is `http://localhost:8000/v1`.
 - **`server/app.py`** — FastAPI REST API (endpoints: `/analyze`, `/index`, `/ask`, `/highlights`, `/report`, `/health`).
 - **`.agents/skills/media/vidify/`** — Hermes-native skill directory and wrappers Hermes can consume directly from the repo.
-- **`agent/extensions/mra/`** — Meta-Reflective Auditor (MRA): a second-order audit module that validates the agent's own self-assessment. Runs a base analysis, generates a structured LLM reflection, scores it against evidence (rule-based), optionally executes targeted interventions (dense resample, zoom crop, re-detect, evidence-only re-reasoning), and produces a final accept/revise/abstain decision. Entry point: `runner.py:run_with_meta_reflection()`. See `design/meta_refective_auditor_impl.md` for the full design.
+- **`agent/extensions/mra/`** — Meta-Reflective Auditor (MRA): a second-order audit module that validates the agent's own self-assessment. Runs a base analysis, generates a structured LLM reflection, scores it against evidence (rule-based), optionally executes targeted interventions (dense resample, zoom crop, re-detect, evidence-only re-reasoning), and produces a final accept/revise/abstain decision. Entry point: `runner.py:run_with_meta_reflection()`. See `design/meta_reflective_auditor_impl.md` for the full design.
 
 ### Cache structure
 Videos are cached under `cache/videos/{sha1(source_type:uri)}/` with subdirectories for frames, audio, analysis JSON, FAISS index, highlight clips, and parallel segment sub-caches (`segments/seg_000/`, etc.). MRA writes `mra_audit.json` and intervention frames under `mra_frames/`.
@@ -161,7 +161,7 @@ set -a && source .env && set +a
 bash scripts/rl.sh -gpu 4 -- bash -c "vllm serve ..."
 ```
 
-If start vllm for GPU jobs, remember to shutdown them down after finishing tasks.
+If you start vLLM for GPU jobs, remember to shut it down after finishing tasks.
 
 ### Qwen3-MLA model
 
@@ -173,5 +173,5 @@ bash scripts/serving_qwen3_mla.sh           # Launches transformers-based OpenAI
 - Custom modeling code: `modeling_qwen3_vl_mla.py` (loaded via `trust_remote_code=True`)
 - MLA uses `kv_a_proj_with_mqa` + `kv_b_proj` instead of standard `q/k/v_proj` — incompatible with vLLM's built-in Qwen3VL handler
 
-## Convensions
+## Conventions
 - Each time updates are introduced, remember to update README.md / CLAUDE.md and related setup files, if necessary. Trivial changes can be ignored for these files.

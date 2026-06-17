@@ -126,7 +126,7 @@ def wf_live(source: str, stream_url: Optional[str], cfg: Dict[str, Any],
 
     # After stream ends, generate global summary
     llm_client = make_client(cfg.get("llm_base_url", "http://localhost:8000/v1"))
-    llm_model = cfg.get("llm_model", "qwen-vl")
+    llm_model = cfg.get("llm_model", "qwen3.5-9b")
     processor.memory.update_global_summary(llm_client, llm_model)
 
     return {
@@ -156,7 +156,7 @@ def create_live_session(session_id: str, cfg: Dict[str, Any]) -> LiveSession:
 
     processor = LiveStreamProcessor(config, models_config, workflows_config)
     llm_client = make_client(cfg.get("llm_base_url", "http://localhost:8000/v1"))
-    llm_model = cfg.get("llm_model", "qwen-vl")
+    llm_model = cfg.get("llm_model", "qwen3.5-9b")
 
     embed_client = make_client(cfg.get("embed_base_url", "http://localhost:8000/v1"))
     embed_model = cfg.get("embed_model", "qwen-embed")
