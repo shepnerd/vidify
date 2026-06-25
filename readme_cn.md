@@ -1,87 +1,88 @@
 # Vidify
 
-[简体中文](readme_cn.md)
+[English](README.md)
 
-Video understanding agent — feed it a YouTube URL and get structured analysis, searchable index, Q&A, highlights, and reports.
+Vidify 是一个视频理解智能体：输入 YouTube 链接或本地视频，即可生成结构化分析、可检索索引、问答结果、精彩片段和报告。
 
-## What It Does
+## 功能概览
 
-| Capability | Description |
-|------------|-------------|
-| **Analyze** | Download, extract subtitles/metadata, ASR, conditionally caption frames, build timeline |
-| **Understand** | OCR, object detection, emotion analysis, translation |
-| **Search** | FAISS index over frames + ASR + metadata, semantic Q&A with targeted visual lookup |
-| **Edit** | Auto-detect highlights, export clips, assemble reels |
-| **Enhance** | Web search context, multi-language support |
-| **Report** | Comprehensive analysis report generation |
-| **Stream** | Real-time live stream / webcam processing with adaptive segmentation and two-level memory |
-| **Parallel Segments** | Split long videos into temporal segments, process in parallel, merge results |
-| **Resilience** | Retry with exponential backoff, graceful degradation for optional skills, lifecycle hooks |
+| 能力 | 说明 |
+|------|------|
+| **分析** | 下载视频，提取字幕和元数据，执行 ASR，按需进行帧字幕生成，并构建时间线 |
+| **理解** | OCR、目标检测、情绪分析、翻译 |
+| **检索** | 基于帧、ASR 和元数据构建 FAISS 索引，支持语义问答和定向视觉查找 |
+| **剪辑** | 自动检测精彩片段，导出视频片段，组装短视频 |
+| **增强** | Web 搜索上下文、多语言支持 |
+| **报告** | 生成完整的视频分析报告 |
+| **流式处理** | 支持实时直播流和摄像头处理，带自适应分段和两级记忆 |
+| **并行分段** | 将长视频切分为时间片段，并行处理后合并结果 |
+| **可靠性** | 指数退避重试、可选能力优雅降级、生命周期钩子 |
 
-## Design Philosophy: ASR-First, Visuals as Last Resort
+## 设计理念：ASR 优先，视觉作为最后手段
 
-Most videos (documentaries, vlogs, presentations, interviews, movie reviews, sports commentary) convey their key information through speech or subtitles. Vidify is designed around this insight:
+大多数视频（纪录片、vlog、演示、访谈、影评、体育解说等）的关键信息主要来自语音或字幕。Vidify 围绕这个事实设计：
 
-1. **Subtitles first** — For YouTube/web videos, embedded subtitles (manual or auto-generated) are extracted via yt-dlp and used as the primary transcript. These are free and often higher quality than ASR.
-2. **ASR fallback** — If no subtitles are available, Whisper ASR transcribes the audio.
-3. **Metadata context** — Video title, description, tags, and uploader info from the source platform are extracted and used as context for timeline building and Q&A.
-4. **Sufficiency check** — A fast heuristic (no LLM call) assesses whether the transcript covers enough of the video to skip expensive MLLM visual processing. Criteria: speech coverage ratio (default ≥30%) and word count (default ≥50 words).
-5. **Conditional visual processing** — MLLM frame captioning only runs when the transcript is insufficient (e.g., silent videos, music videos, or videos with minimal speech).
-6. **Targeted visual lookup** — In Q&A mode, when a question requires visual details (e.g., "what equation is on the board?"), only the frames at relevant timestamps are sampled and captioned, rather than the entire video.
+1. **字幕优先**：对 YouTube 和 Web 视频，优先通过 yt-dlp 提取内嵌字幕（人工字幕或自动字幕），并作为主要转录文本。字幕通常免费且质量高于 ASR。
+2. **ASR 兜底**：没有字幕时，使用 Whisper ASR 转录音频。
+3. **元数据上下文**：提取视频标题、描述、标签、上传者等信息，并用于时间线构建和问答。
+4. **充分性检查**：使用快速启发式规则（不调用 LLM）判断转录文本是否足够，从而跳过昂贵的 MLLM 视觉处理。默认条件为语音覆盖率不低于 30%，且词数不低于 50。
+5. **条件式视觉处理**：只有在转录文本不足时才运行 MLLM 帧字幕生成，例如静音视频、音乐视频或语音极少的视频。
+6. **定向视觉查找**：在问答模式中，如果问题需要视觉细节（例如“黑板上写了什么公式？”），只采样相关时间戳的帧进行描述，而不是处理整段视频。
 
-This approach makes video understanding both smarter and faster — a 30-minute lecture with subtitles can be analyzed without a single MLLM call.
+这个设计让视频理解更聪明也更高效。带字幕的 30 分钟课程视频可以在不调用 MLLM 的情况下完成分析。
 
-## Quick Start
+## 快速开始
 
-### 1. Install
+### 1. 安装
 
 ```bash
-# Lightweight CLI/API install
+# 轻量 CLI/API 安装
 pip install -e .
 
-# System deps: ffmpeg, Python 3.11+
+# 系统依赖：ffmpeg，Python 3.11+
 ```
 
-Optional feature groups:
+可选功能组：
 
 ```bash
-# ASR fallback, OCR, emotion analysis, live video, and local serving helpers
+# ASR 兜底、OCR、情绪分析、实时视频和本地服务辅助脚本
 pip install -e ".[asr,ocr,emotion,live,serving]"
 
-# Previous all-in install for local development
+# 本地开发的完整依赖安装
 pip install -r requirements-full.txt
 ```
 
 ### 1.5 Hermes
 
-This repo ships a Hermes-native skill at `.agents/skills/media/vidify`, so Hermes can use Vidify directly from this checkout as a project-local skill.
+本仓库内置 Hermes 原生 skill，路径为 `.agents/skills/media/vidify`，因此 Hermes 可以直接从当前 checkout 使用 Vidify。
 
-Install it into your user-level Hermes skills directory with:
+将它安装到用户级 Hermes skills 目录：
 
 ```bash
 python -m agent.main hermes install-skill
 ```
 
-That installs into `~/.hermes/skills/media/vidify` by symlink by default. Use `--strategy copy` if you want a standalone copy instead.
+默认会以 symlink 方式安装到 `~/.hermes/skills/media/vidify`。如果希望安装为独立副本，可以使用 `--strategy copy`。
 
-### 2. Optional runtime environment
+### 2. 可选运行环境
 
 ```bash
 cp .env.example .env
-# Edit .env with your local model endpoint, model name, and cache path.
+# 按需编辑 .env，配置本地模型端点、模型名称和缓存路径。
 ```
 
-### 3. Start model serving
+### 3. 启动模型服务
 
-**Qwen3.5 (recommended):**
+**Qwen3.5（推荐）：**
+
 ```bash
-# vLLM >= 0.19.0 required for Qwen3.5 support
+# Qwen3.5 需要 vLLM >= 0.19.0
 pip install "vllm>=0.19.0"
 
-# Auto-detect local model or download from HuggingFace
+# 自动检测本地模型，或从 HuggingFace 下载
 bash scripts/serving_qwen3_5.sh
 
-# Or manually:
+# 也可以手动启动：
 vllm serve Qwen/Qwen3.5-9B \
   --host 0.0.0.0 --port 8000 \
   --max-model-len 65536 \
@@ -89,99 +90,105 @@ vllm serve Qwen/Qwen3.5-9B \
   --allowed-local-media-path $(pwd)/cache
 ```
 
-**GPU validation against an existing endpoint:**
+**使用已有 GPU 端点验证：**
+
 ```bash
 bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 ```
 
-**Qwen3-VL (legacy):**
+**Qwen3-VL（legacy）：**
+
 ```bash
 bash scripts/serving_qwen3vl.sh
 ```
 
-On multi-GPU hosts:
+多 GPU 主机：
+
 ```bash
 TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
 ```
 
-### 4. Run
+### 4. 运行
 
-**CLI:**
+**CLI：**
+
 ```bash
 python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 
-# With structured JSON logging
+# 使用结构化 JSON 日志
 python -m agent.main --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
 
-# Install the Hermes skill into ~/.hermes/skills/media/vidify
+# 安装 Hermes skill 到 ~/.hermes/skills/media/vidify
 python -m agent.main hermes install-skill
 ```
 
-**REST API:**
+**REST API：**
+
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 9000
 
-# Standard (returns final JSON)
+# 标准接口（返回最终 JSON）
 curl -X POST http://localhost:9000/analyze \
   -H 'Content-Type: application/json' \
   -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
 
-# Streaming (returns Server-Sent Events with real-time progress)
+# 流式接口（通过 Server-Sent Events 返回实时进度）
 curl -N -X POST http://localhost:9000/analyze/stream \
   -H 'Content-Type: application/json' \
   -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
 ```
 
-**Web GUI:**
-Open `http://localhost:9000` after starting the server.
+**Web GUI：**
 
-## Workflow Modes
+启动服务后打开 `http://localhost:9000`。
 
-`brief` is the canonical lightweight mode. `quick` is still accepted as a legacy alias in the CLI and API.
+## 工作流模式
+
+`brief` 是标准轻量模式。`quick` 仍作为兼容旧版本的别名，可在 CLI 和 API 中使用。
 
 ```bash
-# Brief summary (ASR-first, skips visuals if transcript is sufficient)
+# 简要总结（ASR 优先，如果转录文本足够则跳过视觉处理）
 python -m agent.main analyze youtube URL --mode brief
 
-# Full analysis (OCR, emotions, objects, ASR, translation)
+# 完整分析（OCR、情绪、目标、ASR、翻译）
 python -m agent.main analyze youtube URL --mode detailed
 
-# Force visual processing even when transcript is sufficient
+# 即使转录文本足够，也强制运行视觉处理
 python -m agent.main analyze youtube URL --mode brief --force-visual
 
-# Build search index, then ask questions
+# 构建搜索索引，然后提问
 python -m agent.main analyze youtube URL --mode ask --question "What are the key conclusions?"
 
-# Ask a visual question (triggers targeted frame lookup)
+# 提出视觉问题（触发定向帧查找）
 python -m agent.main analyze youtube URL --mode ask --question "What equation is shown on the board at 5:30?"
 
-# Export highlight clips
+# 导出精彩片段
 python -m agent.main analyze youtube URL --mode highlights
 
-# Generate report with web search
+# 结合 Web 搜索生成报告
 python -m agent.main analyze youtube URL --mode report --include-web-search
 
-# Live stream from webcam
+# 从摄像头实时处理
 python -m agent.main analyze local webcam --mode live
 
-# Live stream from RTMP/HTTP URL
+# 从 RTMP/HTTP URL 实时处理
 python -m agent.main analyze local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
 ```
 
 ## Hermes
 
-Vidify supports Hermes in two ways:
+Vidify 通过两种方式支持 Hermes：
 
-1. Native skill integration through `.agents/skills/media/vidify`
-2. Stable Python helpers in `agent.integrations.hermes`
+1. 通过 `.agents/skills/media/vidify` 提供原生 skill 集成
+2. 通过 `agent.integrations.hermes` 提供稳定的 Python helper
 
-The Hermes wrappers prefer the installed `vidify` CLI, but they also fall back to `python -m agent.main` from this repo, which makes source-checkout use straightforward.
+Hermes wrapper 会优先使用已安装的 `vidify` CLI，也会回退到当前仓库里的 `python -m agent.main`，因此源码 checkout 也能直接使用。
 
-If you are migrating an older OpenClaw setup, this repo still ships the `openclaw/` skill as well.
+如果你正在迁移较早的 OpenClaw setup，本仓库仍保留 `openclaw/` skill。
 
-### Processing Flow
+### 处理流程
 
-```
+```text
                     ┌─────────────┐
                     │  Download   │
                     │  + Metadata │ ← yt-dlp extracts info.json, subtitles
@@ -222,15 +229,15 @@ If you are migrating an older OpenClaw setup, this repo still ships the `opencla
                    └─────────────┘
 ```
 
-## Online / Streaming Processing
+## 在线 / 流式处理
 
-Vidify supports real-time video understanding from webcams and RTMP/HTTP streams. The streaming architecture is inspired by [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive).
+Vidify 支持从摄像头和 RTMP/HTTP 流进行实时视频理解。流式架构参考了 [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive)。
 
-### Architecture
+### 架构
 
-The streaming pipeline uses a three-module design:
+流式 pipeline 使用三模块设计：
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Live Stream Pipeline                        │
 │                                                                     │
@@ -247,48 +254,50 @@ The streaming pipeline uses a three-module design:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Module A: Perception** — Captures frames at configurable FPS, detects scene changes using CLIP embedding similarity (threshold-based, not fixed windows), and routes each frame through heavy or light analysis models (SlowFast strategy).
+**模块 A：感知**：按配置 FPS 捕获帧，使用 CLIP embedding 相似度检测场景变化（基于阈值，而不是固定窗口），并将每帧路由到重模型或轻模型分析（SlowFast 策略）。
 
-**Module B: Memory** — Maintains a two-level memory hierarchy:
-  - *Local memory*: Per-segment compressed representations (caption + CLIP embedding) for fine-grained temporal retrieval
-  - *Global memory*: LLM-generated summary across all segments for holistic understanding
+**模块 B：记忆**：维护两级记忆结构：
 
-**Module C: Reasoning** — On query, snapshots the memory (backup-on-query pattern for consistency), retrieves relevant segments via cosine similarity, and generates answers using the full context.
+- *局部记忆*：每个片段的压缩表示（caption + CLIP embedding），用于细粒度时间检索
+- *全局记忆*：由 LLM 生成的跨片段摘要，用于整体理解
 
-### Key Features
+**模块 C：推理**：查询时会快照当前记忆（backup-on-query，保证一致性），通过余弦相似度检索相关片段，并使用完整上下文生成回答。
 
-| Feature | Description |
-|---------|-------------|
-| **Adaptive segmentation** | CLIP-based scene-change detection creates semantically meaningful segments instead of fixed-duration windows |
-| **SlowFast analysis** | Heavy model (7B MLLM + OCR + detection) every N frames; light model (small MLLM + OCR) on others |
-| **Two-level memory** | Local per-segment memory for retrieval + global summary for holistic understanding |
-| **Live Q&A** | Ask questions mid-stream; memory is snapshotted for consistency while processing continues |
-| **Backup-on-query** | Deep-copy of memory state ensures retrieval operates on consistent data |
+### 关键特性
 
-### CLI Usage
+| 特性 | 说明 |
+|------|------|
+| **自适应分段** | 基于 CLIP 的场景变化检测，生成语义上有意义的片段，而不是固定时长窗口 |
+| **SlowFast 分析** | 每 N 帧使用重模型（7B MLLM + OCR + 检测），其他帧使用轻模型（小 MLLM + OCR） |
+| **两级记忆** | 局部片段记忆用于检索，全局摘要用于整体理解 |
+| **实时问答** | 可在流处理过程中提问；系统会快照记忆，保证检索一致 |
+| **Backup-on-query** | 深拷贝记忆状态，确保检索过程基于一致数据 |
+
+### CLI 用法
 
 ```bash
-# Live stream from webcam (default)
+# 默认从摄像头读取实时流
 python -m agent.main analyze local webcam --mode live
 
-# RTMP stream
+# RTMP 流
 python -m agent.main analyze local stream --mode live \
   --stream-source stream --stream-url rtmp://host/live/key
 
-# HTTP stream (e.g., IP camera)
+# HTTP 流，例如 IP camera
 python -m agent.main analyze local stream --mode live \
   --stream-source stream --stream-url http://camera-ip/video
 ```
 
 ### REST API
 
-Start the server, then use the `/live/*` endpoints:
+启动服务后使用 `/live/*` 端点：
 
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 9000
 ```
 
-**Start a session:**
+**启动 session：**
+
 ```bash
 curl -X POST http://localhost:9000/live/start \
   -H 'Content-Type: application/json' \
@@ -296,7 +305,8 @@ curl -X POST http://localhost:9000/live/start \
 # Returns: {"session_id": "live_0001", "status": "started"}
 ```
 
-**Ask a question mid-stream:**
+**流处理中提问：**
+
 ```bash
 curl -X POST http://localhost:9000/live/ask \
   -H 'Content-Type: application/json' \
@@ -304,13 +314,15 @@ curl -X POST http://localhost:9000/live/ask \
 # Returns: {"answer": "...", "relevant_segments": [...], "global_summary": "..."}
 ```
 
-**Check status:**
+**查看状态：**
+
 ```bash
 curl http://localhost:9000/live/status/live_0001
 # Returns: {"running": true, "segments_processed": 12, "total_duration_sec": 180.0, ...}
 ```
 
-**Stop and get final memory:**
+**停止并获取最终记忆：**
+
 ```bash
 curl -X POST http://localhost:9000/live/stop \
   -H 'Content-Type: application/json' \
@@ -318,9 +330,9 @@ curl -X POST http://localhost:9000/live/stop \
 # Returns: {"memory": {...}, "total_frame_results": 180}
 ```
 
-### Streaming Configuration
+### 流式配置
 
-Settings in `workflows.yaml` under `live_stream`:
+`workflows.yaml` 中的 `live_stream` 配置：
 
 ```yaml
 live_stream:
@@ -332,7 +344,7 @@ live_stream:
   max_segment_frames: 16       # force new segment after this many frames
 ```
 
-Model tiers in `models.yaml`:
+`models.yaml` 中的模型层级：
 
 ```yaml
 mllm:
@@ -344,67 +356,66 @@ mllm:
     base_url: http://localhost:8000/v1
 ```
 
-## E2E Testing
+## 端到端测试
 
-### GPU Endpoint
+### GPU 端点
 
-The `run_test_gpu.sh` script runs validation against an existing GPU-backed
-OpenAI-compatible endpoint.
+`run_test_gpu.sh` 会对已有的 GPU-backed OpenAI-compatible endpoint 执行验证。
 
 ```bash
-# Use an already-running vLLM endpoint
+# 使用已经运行的 vLLM 端点
 bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 
-# Run specific tests only
+# 只运行指定测试
 bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 \
   --video media/my_video.mp4 --tests "frame_caption video_qa highlights"
 ```
 
-### Local / Manual
+### 本地 / 手动测试
 
-The `test_all.py` script runs all 17 skill tests against a local video:
+`test_all.py` 会针对本地视频运行全部 17 个 skill 测试：
 
 ```bash
-# Auto-detect/launch serving + run all tests
+# 自动检测/启动 serving，并运行全部测试
 python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4
 
-# Use existing endpoint
+# 使用已有端点
 python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --api-base http://localhost:8000/v1
 
-# Specific tests
+# 指定测试
 python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --tests frames qa highlights
 ```
 
-Tests: `video_probe` | `frame_sample` | `audio_extract` | `asr` | `ocr` | `object_detection` | `subtitle_parse` | `metadata_extract` | `content_sufficiency` | `needs_visual` | `asr_first_brief` | `frame_caption` | `video_caption` | `timeline` | `video_qa` | `highlights` | `video_edit`
+测试项：`video_probe` | `frame_sample` | `audio_extract` | `asr` | `ocr` | `object_detection` | `subtitle_parse` | `metadata_extract` | `content_sufficiency` | `needs_visual` | `asr_first_brief` | `frame_caption` | `video_caption` | `timeline` | `video_qa` | `highlights` | `video_edit`
 
 ### YouTube E2E
 
-The `test_youtube_e2e.py` script auto-discovers or launches model serving, downloads a YouTube video, and runs a full test suite:
+`test_youtube_e2e.py` 会自动发现或启动模型服务，下载 YouTube 视频，并运行完整测试套件：
 
 ```bash
-# Auto-detect/launch serving + run all tests
+# 自动检测/启动 serving，并运行全部测试
 python scripts/test_youtube_e2e.py
 
-# Use existing endpoint
+# 使用已有端点
 python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
 
-# Custom video, specific tests
+# 自定义视频和指定测试
 python scripts/test_youtube_e2e.py \
     --youtube "https://www.youtube.com/watch?v=..." \
     --tests frames qa multi_turn_qa
 ```
 
-Tests: `frames` | `batch_frames` | `video_caption` | `qa` | `multi_turn_qa`
+测试项：`frames` | `batch_frames` | `video_caption` | `qa` | `multi_turn_qa`
 
-See [Testing Guide](docs/testing.md) for full details.
+完整说明见 [Testing Guide](docs/testing.md)。
 
-## Production Features
+## 生产特性
 
-Vidify includes production-hardening patterns inspired by large-scale agent architectures:
+Vidify 包含面向生产环境的强化模式，借鉴了大规模 agent 架构中的实践。
 
-### Retry with Exponential Backoff
+### 指数退避重试
 
-All model calls (vLLM chat, Whisper ASR, embedding API) are wrapped with automatic retry on transient failures (timeouts, connection errors, 5xx, rate limits). Configurable per-call: `max_retries`, `base_delay`, `max_delay` with jitter to avoid thundering herd.
+所有模型调用（vLLM chat、Whisper ASR、embedding API）都会对瞬时失败（超时、连接错误、5xx、限流）自动重试。每次调用可配置 `max_retries`、`base_delay`、`max_delay`，并带 jitter，避免重试风暴。
 
 ```python
 from agent.core.retry import retry_with_backoff
@@ -414,19 +425,19 @@ def my_api_call():
     ...
 ```
 
-### Graceful Degradation
+### 优雅降级
 
-Optional skills (OCR, object detection, emotion analysis, translation, web search) are wrapped with `@skill_guard` — if a dependency is missing or a model fails, the skill is skipped and the pipeline continues with a warning instead of crashing.
+可选 skill（OCR、目标检测、情绪分析、翻译、Web 搜索）会通过 `@skill_guard` 包裹。如果依赖缺失或模型失败，对应 skill 会被跳过，pipeline 继续执行并给出 warning，而不是直接崩溃。
 
-### Parallel Skill Execution
+### 并行 skill 执行
 
-In the `detailed` workflow, independent skills (OCR, object detection, emotion analysis) run in parallel using a thread pool. Configurable via `max_parallel_skills` in `workflows.yaml` (default: 3).
+在 `detailed` 工作流中，彼此独立的 skill（OCR、目标检测、情绪分析）会通过线程池并行运行。可在 `workflows.yaml` 中通过 `max_parallel_skills` 配置，默认值为 3。
 
-### Parallel Segment Processing
+### 并行分段处理
 
-For long videos (default >5 min), both `brief` and `detailed` workflows can split the video into temporal segments and process them concurrently:
+对长视频（默认大于 5 分钟），`brief` 和 `detailed` 工作流都可以将视频切分为时间片段，并发处理后再合并：
 
-```
+```text
 Long Video → split into N segments (by duration)
                 ↓
     ┌───────────┼───────────┐
@@ -444,11 +455,11 @@ Long Video → split into N segments (by duration)
          Timeline builder (on merged data)
 ```
 
-**What stays global:** probe, sufficiency check, timeline, translation, web search.
-**What gets parallelized:** frame sampling, MLLM captioning, OCR, object detection, emotion analysis.
-**What can also be parallelized:** long-audio Whisper ASR via clip split/merge with timestamp adjustment.
+**保持全局处理的部分**：probe、充分性检查、timeline、translation、web search。
+**可并行处理的部分**：frame sampling、MLLM captioning、OCR、object detection、emotion analysis。
+**也可并行的部分**：长音频 Whisper ASR，可通过音频切片/合并并调整时间戳。
 
-Enable in `workflows.yaml`:
+在 `workflows.yaml` 中启用：
 
 ```yaml
 detailed:
@@ -466,7 +477,7 @@ detailed:
     min_segment_duration: 30
 ```
 
-**Pluggable segmentation:** The segmentation strategy is abstracted behind a `BaseSegmentor` interface (`agent/core/segment.py`). The default `DurationSegmentor` uses fixed-duration splits via FFmpeg time ranges. Custom segmentors (e.g., DL-based temporal boundary detection with TransNetV2, or semantic segmentation via CLIP) can be registered at runtime:
+**可插拔分段**：分段策略通过 `BaseSegmentor` 接口抽象（`agent/core/segment.py`）。默认 `DurationSegmentor` 使用 FFmpeg 按固定时长切分。自定义分段器（例如基于 TransNetV2 的时序边界检测，或基于 CLIP 的语义分段）可以在运行时注册：
 
 ```python
 from agent.core.segment import BaseSegmentor, register_segmentor
@@ -484,16 +495,16 @@ register_segmentor("scene", SceneSegmentor)
 # Then set segmentor_name="scene" in config or split_video_into_segments()
 ```
 
-### Streaming Progress Events
+### 流式进度事件
 
-An event bus (`agent.core.events`) emits lifecycle events (`skill_start`, `skill_complete`, `skill_error`, `skill_skipped`, `progress`) at each pipeline step.
+事件总线（`agent.core.events`）会在 pipeline 每一步发出生命周期事件：`skill_start`、`skill_complete`、`skill_error`、`skill_skipped`、`progress`。
 
-- **CLI**: Real-time per-skill progress printed to stderr
-- **API**: `POST /analyze/stream` returns Server-Sent Events for live progress monitoring
+- **CLI**：实时将每个 skill 的进度输出到 stderr
+- **API**：`POST /analyze/stream` 返回 Server-Sent Events，用于监控实时进度
 
-### Lifecycle Hooks
+### 生命周期钩子
 
-Shell commands can be triggered at analysis milestones via `hooks.yaml`:
+可以通过 `hooks.yaml` 在分析关键节点触发 shell 命令：
 
 ```yaml
 hooks:
@@ -505,15 +516,15 @@ hooks:
     - command: "echo 'Failed: $ERROR_MSG' >> errors.log"
 ```
 
-Hook points: `pre_analysis`, `post_analysis`, `post_skill`, `on_error`, `post_highlight`, `post_index`.
+钩子点：`pre_analysis`、`post_analysis`、`post_skill`、`on_error`、`post_highlight`、`post_index`。
 
-### Structured Logging
+### 结构化日志
 
-Pass `--log-format json` to the CLI for machine-readable JSON logs with `video_id`, `skill_name`, `duration_ms`, and `status` fields. Use `WorkflowTracker` for per-workflow skill timing summaries.
+CLI 可传入 `--log-format json`，输出机器可读的 JSON 日志，包含 `video_id`、`skill_name`、`duration_ms` 和 `status` 等字段。也可以使用 `WorkflowTracker` 汇总每个工作流中的 skill 耗时。
 
-## Project Structure
+## 项目结构
 
-```
+```text
 agent/
   core/
     schemas.py           # Data models (VideoAsset, FrameSet, Transcript, ContentMetadata, ...)
@@ -562,35 +573,35 @@ docs/                    # Detailed documentation
 .env.example             # Template for .env
 ```
 
-## Configuration
+## 配置
 
-### Runtime Environment (`.env`)
+### 运行环境（`.env`）
 
-For local overrides, configure `.env` (gitignored):
+本地 override 可以写入 `.env`（该文件已 gitignore）：
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable | Description | Example |
-|----------|-------------|---------|
+| 变量 | 说明 | 示例 |
+|------|------|------|
 | `LLM_BASE_URL` | OpenAI-compatible chat/completions endpoint | `http://localhost:8000/v1` |
-| `LLM_MODEL` | Default multimodal model name | `qwen3.5-9b` |
+| `LLM_MODEL` | 默认多模态模型名称 | `qwen3.5-9b` |
 | `EMBED_BASE_URL` | OpenAI-compatible embeddings endpoint | `http://localhost:8000/v1` |
-| `EMBED_MODEL` | Default embedding model name | `qwen-embed` |
-| `CACHE_ROOT` | Runtime cache directory | `./cache` |
+| `EMBED_MODEL` | 默认 embedding 模型名称 | `qwen-embed` |
+| `CACHE_ROOT` | 运行时缓存目录 | `./cache` |
 
-### Model & Workflow Config
+### 模型与工作流配置
 
-Optional YAML files in the project root:
+项目根目录中的可选 YAML 文件：
 
-- `models.yaml` — model selection, parameters, endpoints
-- `workflows.yaml` — workflow steps, frame limits, feature toggles
-- `hooks.yaml` — lifecycle hooks (shell commands triggered at analysis milestones)
+- `models.yaml`：模型选择、参数、端点
+- `workflows.yaml`：工作流步骤、帧数限制、功能开关
+- `hooks.yaml`：生命周期钩子，在分析关键节点触发 shell 命令
 
-### ASR-First Configuration
+### ASR 优先配置
 
-These settings in `workflows.yaml` control the ASR-first behavior:
+`workflows.yaml` 中的这些设置控制 ASR-first 行为：
 
 ```yaml
 brief:
@@ -601,19 +612,15 @@ brief:
   prefer_subtitles_over_asr: true    # use embedded subs over Whisper when available
 ```
 
-Falls back to built-in defaults if files don't exist. CLI/API parameters always take priority.
+如果配置文件不存在，会回退到内置默认值。CLI/API 参数始终优先。
 
-See [Configuration Guide](docs/configuration.md).
+更多内容见 [Configuration Guide](docs/configuration.md)。
 
-## Ascend / NPU Deployment
+## Ascend / NPU 部署
 
-Vidify can run against Ascend-backed vLLM deployments through the same
-OpenAI-compatible API used for GPU serving. The project includes generic helper
-scripts for common Qwen models:
+Vidify 可以通过与 GPU serving 相同的 OpenAI-compatible API 对接 Ascend-backed vLLM 部署。项目提供了面向常见 Qwen 模型的通用 helper 脚本：
 
-For public docs, keep deployment examples generic. Store provider-specific
-environment names, internal registry URLs, mount paths, and scheduler commands
-in local docs or `.env` files instead of committed README changes.
+公开文档中的部署示例应保持通用。请将具体提供商环境名称、内部 registry URL、挂载路径和调度命令保存在本地文档或 `.env` 文件中，不要提交到 README。
 
 ```bash
 # Qwen3.5-9B
@@ -626,10 +633,7 @@ TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /models/Qwen2.5-VL-7B-Instruc
 bash scripts/run_test_ascend.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 ```
 
-For Qwen3.5 on Ascend, the helper uses `--enforce-eager` and a conservative
-default `MAX_MODEL_LEN=16384`, which are usually safer for NPU memory behavior.
-Adjust `TP_SIZE`, `MAX_MODEL_LEN`, `PORT`, and `ALLOWED_LOCAL_MEDIA_PATH` for
-your hardware and vLLM build.
+对 Ascend 上的 Qwen3.5，helper 默认使用 `--enforce-eager` 和较保守的 `MAX_MODEL_LEN=16384`，通常更适合 NPU 显存行为。请根据你的硬件和 vLLM 构建调整 `TP_SIZE`、`MAX_MODEL_LEN`、`PORT` 和 `ALLOWED_LOCAL_MEDIA_PATH`。
 
 ## Docker
 
@@ -642,21 +646,21 @@ docker build -t vidify .
 docker run -p 9000:9000 vidify
 ```
 
-## Requirements
+## 依赖要求
 
-- **System:** ffmpeg, yt-dlp, Python 3.11+
-- **GPU:** vLLM-compatible GPU for model serving (or use `--direct-model` for local loading)
-- **Models:** Qwen3.5 (default, recommended), Qwen3-VL (legacy), configurable via `models.yaml`
-- **vLLM:** >= 0.19.0 required for Qwen3.5 (`pip install "vllm>=0.19.0"`)
+- **系统**：ffmpeg、yt-dlp、Python 3.11+
+- **GPU**：用于模型服务的 vLLM-compatible GPU，或使用 `--direct-model` 进行本地加载
+- **模型**：Qwen3.5（默认，推荐）、Qwen3-VL（legacy），可通过 `models.yaml` 配置
+- **vLLM**：Qwen3.5 需要 >= 0.19.0（`pip install "vllm>=0.19.0"`）
 
-## Documentation
+## 文档
 
-| Document | Contents |
-|----------|----------|
-| [Architecture](docs/architecture.md) | Data models, data flow, cache structure, model interfaces |
-| [Workflows](docs/workflows.md) | All workflow pipelines in detail |
-| [Skills Reference](docs/skills.md) | All skills — API signatures and descriptions |
-| [API Reference](docs/api.md) | REST endpoints, CLI options, request/response schemas |
-| [Configuration](docs/configuration.md) | YAML configs, vLLM setup, Docker deployment |
-| [Testing Guide](docs/testing.md) | E2E test script, demo scripts, individual tests |
-| [Web Search](docs/web-search.md) | Google/Baidu search integration setup |
+| 文档 | 内容 |
+|------|------|
+| [Architecture](docs/architecture.md) | 数据模型、数据流、缓存结构、模型接口 |
+| [Workflows](docs/workflows.md) | 所有工作流 pipeline 的详细说明 |
+| [Skills Reference](docs/skills.md) | 所有 skill 的 API 签名和说明 |
+| [API Reference](docs/api.md) | REST endpoint、CLI option、请求/响应 schema |
+| [Configuration](docs/configuration.md) | YAML 配置、vLLM setup、Docker 部署 |
+| [Testing Guide](docs/testing.md) | E2E 测试脚本、demo 脚本、单项测试 |
+| [Web Search](docs/web-search.md) | Google/Baidu 搜索集成设置 |
