@@ -20,6 +20,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # 拷贝代码
 COPY agent /app/agent
 COPY server /app/server
+COPY templates /app/templates
+COPY static /app/static
 
 # 拷贝配置文件
 COPY models.yaml /app/models.yaml

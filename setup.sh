@@ -26,16 +26,13 @@ fi
 # ── Python dependencies ──────────────────────────────────────────────────────
 pip install -r requirements.txt
 
-# ── Cluster environment ──────────────────────────────────────────────────────
+# ── Runtime environment ──────────────────────────────────────────────────────
 if [[ ! -f .env ]]; then
     if [[ -f .env.example ]]; then
         echo ""
         echo "No .env file found. Copying from .env.example ..."
         cp .env.example .env
-        echo "Please edit .env with your cluster settings:"
-        echo "  - RL_CHARGED_GROUP  (your GPU quota group)"
-        echo "  - RL_MOUNT          (GPFS mount points)"
-        echo "  - CUDA_HOME         (shared CUDA toolkit path)"
+        echo "Please edit .env with your local endpoint and model settings."
     fi
 else
     echo ".env already exists, skipping."
@@ -53,7 +50,7 @@ for cmd in python3 ffmpeg; do
 done
 
 # Check optional tools
-for cmd in yt-dlp rlaunch; do
+for cmd in yt-dlp vllm; do
     if command -v "$cmd" &>/dev/null; then
         echo "  ✓ $cmd"
     else
@@ -65,7 +62,7 @@ echo ""
 echo "Setup complete."
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env with your cluster settings (if on GPU cluster)"
+echo "  1. Edit .env with your local endpoint/model settings"
 echo "  2. Start model serving:  bash scripts/serving_qwen3_5.sh"
 echo "  3. Run analysis:         python agent/main.py analyze local video.mp4 --mode detailed"
-echo "  4. Run tests:            bash scripts/run_test_gpu.sh"
+echo "  4. Run tests:            bash scripts/run_test_gpu.sh --video media/my_video.mp4"

@@ -28,7 +28,7 @@ def _get_model():
                 "Install it with: pip install vidify[detection]"
             )
         import os
-        # Prevent ultralytics from reaching the network on air-gapped clusters
+        # Prevent ultralytics from reaching the network in offline environments.
         os.environ.setdefault("YOLO_OFFLINE", "1")
         from ultralytics import YOLO
         from ultralytics import settings as ul_settings

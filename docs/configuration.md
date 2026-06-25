@@ -98,18 +98,19 @@ vllm serve /path/to/model \
 | `--tensor-parallel-size N` | Set to match your GPU count. |
 | `--max-model-len 32768` | Needed for long video contexts. |
 
-### GPU cluster serving
+### Managed GPU/NPU serving
 
-On a GPU cluster using `rl.sh` (rlaunch wrapper):
+For managed GPU or NPU environments, start vLLM with your platform's scheduler
+and pass the OpenAI-compatible endpoint to Vidify:
 
 ```bash
-# Launch a detached 2-GPU serving job
-rl.sh -gpu 2 -d -- vllm serve /path/to/model \
-  --host 0.0.0.0 --port 8000 \
-  --tensor-parallel-size 2 --max-model-len 32768
+python -m agent.main analyze local video.mp4 \
+  --mode detailed \
+  --config config.yaml
 ```
 
-The E2E test script can auto-launch serving — see [Testing Guide](testing.md).
+Set `LLM_BASE_URL` and `LLM_MODEL` in `.env` or `config.yaml`, or pass
+`--api-base` to the validation scripts.
 
 ## Environment Variables
 

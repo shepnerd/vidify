@@ -6,6 +6,8 @@ These tests are self-contained and do not require vLLM or external services.
 import os
 import time
 import json
+import sys
+import types
 import threading
 import tempfile
 import pytest
@@ -628,6 +630,25 @@ class TestQwen35Detection:
         assert supports_video("llama-3") is False
 
 
+class TestConfigDefaults:
+    def test_default_config_reads_runtime_environment(self, monkeypatch):
+        from agent.config import get_default_config
+
+        monkeypatch.setenv("LLM_BASE_URL", "http://vllm:8000/v1")
+        monkeypatch.setenv("LLM_MODEL", "served-model")
+        monkeypatch.setenv("EMBED_BASE_URL", "http://embed:8000/v1")
+        monkeypatch.setenv("EMBED_MODEL", "embed-model")
+        monkeypatch.setenv("CACHE_ROOT", "/app/cache")
+
+        cfg = get_default_config()
+
+        assert cfg["llm_base_url"] == "http://vllm:8000/v1"
+        assert cfg["llm_model"] == "served-model"
+        assert cfg["embed_base_url"] == "http://embed:8000/v1"
+        assert cfg["embed_model"] == "embed-model"
+        assert cfg["cache_root"] == "/app/cache"
+
+
 class TestModelResolution:
     def test_resolve_model_name_matches_path_style_served_id(self, monkeypatch):
         from agent.extensions.models import vllm_openai_client as client_mod
@@ -668,6 +689,49 @@ class TestModelResolution:
 
         resolved = client_mod.resolve_model_name("qwen3.5-9b", "http://localhost:8000/v1")
         assert resolved == "/data/models/SomeOtherModel"
+
+
+class TestDirectChatClient:
+    def test_transformers_client_import_path_exists(self):
+        from agent.extensions.models.transformers_client import TransformersVLClient
+
+        assert TransformersVLClient.__name__ == "TransformersVLClient"
+
+    def test_transformers_client_adapts_chat_interface(self, monkeypatch):
+        from agent.extensions.models.transformers_client import TransformersVLClient
+
+        calls = []
+
+        class FakeDirectClient:
+            def chat_with_images(self, model_name, prompt, image_urls,
+                                 max_tokens=512, temperature=0.2):
+                calls.append({
+                    "model_name": model_name,
+                    "prompt": prompt,
+                    "image_urls": image_urls,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                })
+                return "<think>hidden</think>\n\nok"
+
+        fake_loader = types.ModuleType("agent.extensions.models.direct_model_loader")
+        fake_loader.make_direct_client = lambda *args, **kwargs: FakeDirectClient()
+        monkeypatch.setitem(
+            sys.modules,
+            "agent.extensions.models.direct_model_loader",
+            fake_loader,
+        )
+
+        client = TransformersVLClient("model-id", dtype="float16")
+        assert client.chat([
+            {"role": "system", "content": "Answer concisely."},
+            {"role": "user", "content": "What happened?"},
+        ]) == "ok"
+        assert calls[-1]["model_name"] == "model-id"
+        assert "system: Answer concisely." in calls[-1]["prompt"]
+
+        assert client.chat_with_images("describe", ["/tmp/frame.jpg"]) == "ok"
+        assert calls[-1]["image_urls"] == ["file:///tmp/frame.jpg"]
 
 
 class TestBilibiliDownloadHandling:

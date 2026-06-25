@@ -44,11 +44,11 @@ def load_workflows_config(workflows_path: str = "workflows.yaml") -> Dict[str, A
 
 def get_default_config() -> Dict[str, Any]:
     return {
-        "llm_base_url": "http://localhost:8000/v1",
-        "llm_model": "qwen3.5-9b",
-        "embed_base_url": "http://localhost:8000/v1",
-        "embed_model": "qwen-embed",
-        "cache_root": "./cache",
+        "llm_base_url": os.getenv("LLM_BASE_URL", "http://localhost:8000/v1"),
+        "llm_model": os.getenv("LLM_MODEL", "qwen3.5-9b"),
+        "embed_base_url": os.getenv("EMBED_BASE_URL", "http://localhost:8000/v1"),
+        "embed_model": os.getenv("EMBED_MODEL", "qwen-embed"),
+        "cache_root": os.getenv("CACHE_ROOT", "./cache"),
         "max_frames": 128,
         "whisper_model": "small",
         "chunk_sec": 20,

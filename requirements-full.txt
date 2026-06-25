@@ -1,0 +1,27 @@
+# Full local feature set. This intentionally includes heavyweight model,
+# OCR, emotion, and live-video dependencies.
+-r requirements.txt
+
+# Model serving / in-process loading
+vllm>=0.19.0
+transformers>=4.40.0
+torch>=2.0.0
+
+# ASR and audio analysis
+librosa>=0.10.0
+
+# OCR
+opencv-python>=4.8.0
+paddlepaddle>=2.6.0
+paddleocr>=2.7.0
+pytesseract>=0.3.10
+
+# Emotion analysis
+fer>=22.0.0
+
+# Object detection (AGPL-licensed upstream dependency)
+ultralytics>=8.0.0
+
+# Tests
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-End-to-end test for YouTube video understanding with auto model serving.
+End-to-end test for YouTube video understanding with optional local model serving.
 
 This script:
   1. Probes for an existing vLLM service (user-specified or common endpoints)
-  2. If none found, launches a GPU job via scripts/rl.sh to start vLLM serving
+  2. If none found, optionally launches local ``vllm serve``
   3. Downloads a YouTube video (requires internet on this node)
   4. Tests video understanding: frame captioning, video captioning, Q&A
 
@@ -31,7 +31,7 @@ import os
 import sys
 import time
 
-# ── Unset cluster proxy env vars BEFORE importing HTTP libraries ──────────────
+# ── Unset proxy env vars BEFORE importing HTTP libraries ──────────────────────
 for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
     os.environ.pop(_key, None)
 
@@ -54,7 +54,7 @@ from agent.extensions.utils import (
 )
 from agent.extensions.utils.cache import sha1
 from agent.extensions.utils.serving import (
-    probe_vllm, find_existing_service, read_serving_ip,
+    probe_vllm, find_existing_service,
     launch_serving, wait_for_serving, get_model_name, make_client,
 )
 
@@ -333,16 +333,12 @@ def main():
             sys.exit(1)
     else:
         candidates = ["http://localhost:8000/v1"]
-        prev_ip = read_serving_ip()
-        if prev_ip:
-            candidates.insert(0, f"http://{prev_ip}:{VLLM_PORT}/v1")
-
         base_url = find_existing_service(candidates, log_fn=log)
         if not base_url:
             if args.skip_serve:
                 log("ERROR: No serving endpoint found and --skip-serve is set.")
                 sys.exit(1)
-            log("No existing service found. Launching new vLLM serving ...")
+            log("No existing service found. Launching local vLLM serving ...")
             serve_proc = launch_serving(gpu=args.gpu, tp=args.tp, log_fn=log)
             base_url = wait_for_serving(serve_proc, timeout=600, log_fn=log)
 

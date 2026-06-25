@@ -7,7 +7,7 @@
 | | Qwen3.5 (A) | Qwen3-MLA (B) |
 |---|---|---|
 | **Model** | Qwen3.5-9B | hf-5615 (Qwen3-VL + MLA attention) |
-| **Checkpoint** | `Qwen/Qwen3.5-9B` | `/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615` |
+| **Checkpoint** | `Qwen/Qwen3.5-9B` | `/models/qwen3-mla` |
 | **Backend** | vLLM (optimized) | HuggingFace Transformers (naive) |
 | **GPUs** | 4 | 1 |
 | **Port** | 8000 | 8001 |

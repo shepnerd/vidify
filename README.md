@@ -34,8 +34,20 @@ This approach makes video understanding both smarter and faster — a 30-minute 
 ### 1. Install
 
 ```bash
-pip install -r requirements.txt
-# System deps: ffmpeg, yt-dlp, Python 3.11+
+# Lightweight CLI/API install
+pip install -e .
+
+# System deps: ffmpeg, Python 3.11+
+```
+
+Optional feature groups:
+
+```bash
+# ASR fallback, OCR, emotion analysis, live video, and local serving helpers
+pip install -e ".[asr,ocr,emotion,live,serving]"
+
+# Previous all-in install for local development
+pip install -r requirements-full.txt
 ```
 
 ### 1.5 Hermes
@@ -50,14 +62,11 @@ python -m agent.main hermes install-skill
 
 That installs into `~/.hermes/skills/media/vidify` by symlink by default. Use `--strategy copy` if you want a standalone copy instead.
 
-### 2. Configure cluster environment (GPU cluster only)
+### 2. Optional runtime environment
 
 ```bash
 cp .env.example .env
-# Edit .env with your cluster settings:
-#   RL_CHARGED_GROUP — your quota group
-#   RL_MOUNT         — GPFS mount points (project data + shared-public for CUDA)
-#   CUDA_HOME        — shared CUDA toolkit path (for flashinfer JIT on Qwen3.5)
+# Edit .env with your local model endpoint, model name, and cache path.
 ```
 
 ### 3. Start model serving
@@ -78,15 +87,9 @@ vllm serve Qwen/Qwen3.5-9B \
   --allowed-local-media-path $(pwd)/cache
 ```
 
-**On a GPU cluster (one command):**
+**GPU validation against an existing endpoint:**
 ```bash
-# Launches vLLM on cluster GPUs, waits for ready, runs full test suite
-bash scripts/run_test_gpu.sh
-
-# Options:
-bash scripts/run_test_gpu.sh --gpu 2 --video media/my_video.mp4
-bash scripts/run_test_gpu.sh --api-base http://10.0.0.1:8000/v1   # reuse existing endpoint
-bash scripts/run_test_gpu.sh --model qwen3vl                       # use Qwen3-VL instead
+bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 ```
 
 **Qwen3-VL (legacy):**
@@ -94,7 +97,7 @@ bash scripts/run_test_gpu.sh --model qwen3vl                       # use Qwen3-V
 bash scripts/serving_qwen3vl.sh
 ```
 
-On a GPU cluster (manual):
+On multi-GPU hosts:
 ```bash
 TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
 ```
@@ -341,28 +344,19 @@ mllm:
 
 ## E2E Testing
 
-### GPU Cluster (one command)
+### GPU Endpoint
 
-The `run_test_gpu.sh` script handles the full lifecycle: load `.env`, discover/launch vLLM on GPU nodes, wait for flashinfer JIT compilation, and run all 17 skill tests.
+The `run_test_gpu.sh` script runs validation against an existing GPU-backed
+OpenAI-compatible endpoint.
 
 ```bash
-# Default: Qwen3.5-9B on 4 GPUs with taste_in_china_s1e1.mp4
-bash scripts/run_test_gpu.sh
-
-# Custom video and GPU count
-bash scripts/run_test_gpu.sh --gpu 2 --video media/my_video.mp4
-
-# Reuse an already-running vLLM endpoint
-bash scripts/run_test_gpu.sh --api-base http://10.0.0.1:8000/v1
+# Use an already-running vLLM endpoint
+bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 
 # Run specific tests only
-bash scripts/run_test_gpu.sh --tests "frame_caption video_qa highlights"
-
-# Use Qwen3-VL instead of Qwen3.5
-bash scripts/run_test_gpu.sh --model qwen3vl
+bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 \
+  --video media/my_video.mp4 --tests "frame_caption video_qa highlights"
 ```
-
-**Prerequisites:** `.env` must be configured with `RL_CHARGED_GROUP`, `RL_MOUNT` (including shared-public for CUDA toolkit), and `CUDA_HOME`. See `.env.example`.
 
 ### Local / Manual
 
@@ -552,25 +546,25 @@ agent/
 server/
   app.py                 # FastAPI REST server (port 9000)
 scripts/                 # Test and demo scripts
-  run_test_gpu.sh          # One-command: launch vLLM on cluster + run full test suite
+  run_test_gpu.sh          # Run tests against a GPU-backed endpoint
+  run_test_ascend.sh       # Run tests against an Ascend/NPU-backed endpoint
   test_all.py              # 17-skill test suite for local videos
   test_youtube_e2e.py      # YouTube E2E test
   serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B (GPU)
   serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
-  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend 910C NPU (fallback)
-  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5-9B on Ascend 910C (vLLM 0.18+)
-  start_vidify_ascend.sh  # One-command: start vLLM + vidify chat on Ascend
-  rl.sh                    # GPU cluster job launcher (rlaunch wrapper)
+  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend/NPU
+  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5-9B on Ascend/NPU
+  start_vidify_ascend.sh  # Convenience wrapper for Ascend/NPU serving
 docs/                    # Detailed documentation
-.env                     # Cluster config: quota group, GPFS mounts, CUDA_HOME (gitignored)
+.env                     # Optional local runtime overrides (gitignored)
 .env.example             # Template for .env
 ```
 
 ## Configuration
 
-### Cluster Environment (`.env`)
+### Runtime Environment (`.env`)
 
-For GPU cluster deployments, configure `.env` (gitignored):
+For local overrides, configure `.env` (gitignored):
 
 ```bash
 cp .env.example .env
@@ -578,11 +572,11 @@ cp .env.example .env
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `RL_CHARGED_GROUP` | Cluster quota group for GPU jobs | `ptdata_gpu` |
-| `RL_MOUNT` | GPFS mount points (comma-separated) | `gpfs://gpfs2/sfteval:...,gpfs://gpfs2/gpfs2-shared-public:...` |
-| `CUDA_HOME` | Shared CUDA toolkit for flashinfer JIT | `/mnt/shared-storage-gpfs2/gpfs2-shared-public/soft/cuda/12.8` |
-
-**Why `CUDA_HOME`?** Qwen3.5's GDN (Gated DeltaNet) layers require flashinfer, which JIT-compiles CUDA kernels at first inference. GPU nodes typically have no internet access, so `nvcc` must come from shared storage.
+| `LLM_BASE_URL` | OpenAI-compatible chat/completions endpoint | `http://localhost:8000/v1` |
+| `LLM_MODEL` | Default multimodal model name | `qwen3.5-9b` |
+| `EMBED_BASE_URL` | OpenAI-compatible embeddings endpoint | `http://localhost:8000/v1` |
+| `EMBED_MODEL` | Default embedding model name | `qwen-embed` |
+| `CACHE_ROOT` | Runtime cache directory | `./cache` |
 
 ### Model & Workflow Config
 
@@ -609,121 +603,27 @@ Falls back to built-in defaults if files don't exist. CLI/API parameters always 
 
 See [Configuration Guide](docs/configuration.md).
 
-## Ascend 910C / D-Cluster Deployment
+## Ascend / NPU Deployment
 
-Vidify can run on Ascend 910C NPU nodes in the D-cluster (SenseCore platform) using vLLM with the `vllm_ascend` backend.
-
-### Prerequisites
-
-- Access to D-cluster with `vcctl`/`kubectl` configured (see `../workbench/infra/d-cluster/setup.sh`)
-- Image: `registry2.d.pjlab.org.cn/ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` (vLLM 0.18, supports Qwen3.5-9B + Qwen2.5-VL)
-- Legacy image: same (only one image available, supports both models)
-
-### Model Compatibility
-
-| Model | Status | head_dim | TP sizes | Notes |
-|-------|--------|----------|----------|-------|
-| **Qwen3.5-9B** | **Recommended** | 256 | 1, 2, 4 | Requires `--enforce-eager` |
-| Qwen2.5-VL-7B-Instruct | Fallback | 128 | 1, 2, 4, 7, 14 | Works on both images |
-
-Qwen3.5-9B's hybrid GDN+Attention architecture is supported on Ascend via vllm_ascend >= 0.17. The `head_dim=256` in attention layers requires `--enforce-eager` (NPU fused attention kernel only supports 64/128/192, so the non-fused path is used).
-
-### Quick Start (Qwen3.5-9B — Recommended)
+Vidify can run against Ascend-backed vLLM deployments through the same
+OpenAI-compatible API used for GPU serving. The project includes generic helper
+scripts for common Qwen models:
 
 ```bash
-# 1. Submit a job (16 NPUs = full node, interactive)
-job-run vidify-qwen35 -f ./infra/d-cluster/job-vidify-qwen35.yaml
+# Qwen3.5-9B
+TP_SIZE=2 bash scripts/serving_qwen3_5_ascend.sh /models/Qwen3.5-9B
 
-# 2. Exec into the pod
-pod-exec vidify-qwen35
+# Qwen2.5-VL fallback
+TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /models/Qwen2.5-VL-7B-Instruct
 
-# 3. One-command start: downloads model, starts vLLM, launches chat
-bash scripts/start_vidify_ascend.sh /data/videos/myvideo.mp4
-
-# Or start server only, then chat separately:
-bash scripts/start_vidify_ascend.sh --server-only
-python -m agent.main chat local /data/videos/myvideo.mp4 --cache-root ./cache
+# Run tests against an existing Ascend/NPU endpoint
+bash scripts/run_test_ascend.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
 ```
 
-### Quick Start (Qwen2.5-VL — Legacy/Fallback)
-
-```bash
-# 1. Submit a job (uses older image)
-job-run vidify -f ./infra/d-cluster/job-vidify.yaml
-
-# 2. Exec into pod, start vLLM + API
-pod-exec vidify
-bash scripts/serving_qwen2_5vl_ascend.sh &
-uvicorn server.app:app --host 0.0.0.0 --port 9000
-```
-
-### One-Command Test (launches job, starts vLLM, runs tests, cleans up)
-
-```bash
-bash scripts/run_test_ascend.sh --video media/taste_in_china_s1e1.mp4
-bash scripts/run_test_ascend.sh --api-base http://10.x.x.x:8000/v1   # reuse existing endpoint
-bash scripts/run_test_ascend.sh --npus 4 --tests "frame_caption video_qa"
-```
-
-On Ascend, the repo keeps its transcript-first design: subtitles and local ASR are attempted before visual captioning. If `models/whisper-small` is not present but `models/faster-whisper-small` is available, the repo now uses that offline ASR backend automatically. If neither local model is present in the pod, the Ascend helper scripts disable Whisper automatically and fall back to meta/subtitles first, then visual analysis only when sufficiency requires it.
-
-Long audio can now use clip-level parallel Whisper ASR with merge-back timestamp correction. The Ascend helper scripts enable this by default with CPU workers (`VIDIFY_ASR_DEVICES=cpu,cpu,cpu,cpu`) so ASR does not fight the 16-NPU vLLM pool. If you want accelerator-backed ASR instead, explicitly set `VIDIFY_ASR_DEVICES` to reserved devices such as `npu:12,npu:13` or `cuda:0,cuda:1`.
-
-### NPU Serving Scripts
-
-```bash
-# Qwen3.5-9B (recommended)
-bash scripts/serving_qwen3_5_ascend.sh                      # TP=4, auto-detect model
-bash scripts/serving_qwen3_5_ascend.sh /data/models/Qwen3.5-9B
-
-# Qwen2.5-VL-7B (fallback)
-bash scripts/serving_qwen2_5vl_ascend.sh
-TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /data/models/Qwen2.5-VL-7B-Instruct
-```
-
-### Key Differences from GPU
-
-| Setting | GPU | NPU (Ascend 910C) |
-|---------|-----|--------------------|
-| Image | `python:3.11-slim` | `ccr-hw/910c:vllm-ascend-0.18.0rc1-a3-0409` |
-| Model | Qwen3.5-9B | Qwen3.5-9B (with `--enforce-eager`) or Qwen2.5-VL-7B |
-| vLLM backend | CUDA | `vllm_ascend` (auto-detected) |
-| vLLM flags | (default) | `--enforce-eager --max-model-len 16384` |
-| Min devices | 1 GPU | 2 NPUs (cluster policy) |
-| Network | Public internet | No internet; use `HF_ENDPOINT=https://hf-mirror.com` for downloads |
-| Package manager | apt | yum/dnf |
-| Architecture | x86_64 | aarch64 (ARM) |
-| torch_compile | Supported | Not supported |
-
-### Network Constraints
-
-D-cluster nodes **cannot reach the public internet**. For model/package downloads:
-
-- **HuggingFace models**: Set `HF_ENDPOINT=https://hf-mirror.com` before downloading
-- **PyPI packages**: Use internal proxy: `pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ --trusted-host pkg.pjlab.org.cn`
-- **Whisper/wav2vec2 models**: Must be pre-downloaded on a node with internet access and copied to the pod, or use `whisper_model: null` in `config.yaml` to skip ASR
-
-The Ascend helper scripts handle this automatically: they detect whether `models/whisper-small` or `models/faster-whisper-small` is available locally, set `llm_model` to the actual served vLLM model id, and avoid attempting broken public-network Whisper downloads inside the pod.
-
-### Rebuilding the Image
-
-Docker build won't work (no network during build). Use the commit-from-pod approach:
-
-```bash
-# 1. Start a build job
-job-run img-build -g 2 --no-mount
-
-# 2. Install packages inside the pod
-pod-exec img-build
-pip install -i https://pkg.pjlab.org.cn/repository/pypi-proxy/simple/ \
-  --trusted-host pkg.pjlab.org.cn --no-cache-dir <packages>
-
-# 3. Commit as new image (use ccr-hw/910c namespace for A3 images)
-commit-image img-build-master-0 ccr-hw/910c:my-tag
-
-# 4. Clean up
-job-delete img-build -y
-```
+For Qwen3.5 on Ascend, the helper uses `--enforce-eager` and a conservative
+default `MAX_MODEL_LEN=16384`, which are usually safer for NPU memory behavior.
+Adjust `TP_SIZE`, `MAX_MODEL_LEN`, `PORT`, and `ALLOWED_LOCAL_MEDIA_PATH` for
+your hardware and vLLM build.
 
 ## Docker
 

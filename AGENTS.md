@@ -104,12 +104,11 @@ Test scope should match risk:
   tests plus existing regression files
 - FastAPI/API or web UI changes: exercise `uvicorn server.app:app --host 0.0.0.0 --port 9000`
   and include sample request/output when behavior changes
-- model-serving or cluster scripts: validate with the matching GPU or Ascend
+- model-serving or device-specific scripts: validate with the matching GPU or Ascend
   helper and record the endpoint used
 
 ## Configuration, Models, and Assets
-Keep environment-specific values in `.env`; start cluster jobs only after loading
-it with:
+Keep environment-specific values in `.env`; load it before running environment-specific helpers:
 ```bash
 set -a && source .env && set +a
 ```

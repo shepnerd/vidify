@@ -15,7 +15,7 @@ from agent.extensions.models.thinking import strip_thinking, make_no_thinking_ex
 logger = logging.getLogger(__name__)
 _MODEL_NAME_CACHE: dict[tuple[str, str], str] = {}
 
-# Strip cluster proxy env vars that corrupt multimodal POST payloads.
+# Strip proxy env vars that can corrupt multimodal POST payloads.
 # Must happen before httpx internalises the env (first OpenAI() call).
 for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
              "all_proxy", "ALL_PROXY"):

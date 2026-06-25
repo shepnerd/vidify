@@ -135,7 +135,7 @@ These send requests to the FastAPI server (`http://localhost:9000`):
 ### Serving Script
 
 ```bash
-# Start vLLM serving on 2 GPUs (cluster)
+# Start vLLM serving on 2 GPUs
 bash scripts/serving_qwen3vl.sh
 ```
 

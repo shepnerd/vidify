@@ -40,7 +40,7 @@ __pycache__/
 *.h5
 *.msgpack
 *.ot
-models/
+/models/
 
 # Logs
 *.log
@@ -53,6 +53,10 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Local agent/editor state
+.codex
+.claude/
 
 # Cluster-specific infra configs
 infra/

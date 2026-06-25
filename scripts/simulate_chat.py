@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simulate interactive chat sessions for testing on D-cluster / GPU.
+"""Simulate interactive chat sessions for testing against GPU/NPU endpoints.
 
 Runs a series of preset questions through VideoChat and saves the transcript.
 Useful for testing the chat pipeline end-to-end without a real terminal.

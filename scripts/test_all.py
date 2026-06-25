@@ -5,7 +5,7 @@ Comprehensive lite test for ALL Vidify agent skills.
 Tests each skill module individually on a local video file, keeping each
 test bounded so the full suite finishes within ~15 minutes on a 49-min video.
 
-Auto-discovers or launches a vLLM serving endpoint (same as test_youtube_e2e.py).
+Auto-discovers an existing vLLM endpoint or launches a local one.
 
 Usage:
   # Auto-detect or launch serving, test with default video
@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 
-# ── Unset cluster proxy BEFORE importing HTTP libs ────────────────────────────
+# ── Unset proxy settings BEFORE importing HTTP libs ───────────────────────────
 for _key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
              "all_proxy", "ALL_PROXY"):
     os.environ.pop(_key, None)
@@ -52,7 +52,7 @@ from agent.extensions.utils import (
 )
 from agent.extensions.utils.cache import sha1
 from agent.extensions.utils.serving import (
-    probe_vllm, find_existing_service, read_serving_ip,
+    probe_vllm, find_existing_service,
     launch_serving, wait_for_serving, get_model_name, make_client,
 )
 from agent.extensions.models.thinking import make_no_thinking_extra_body
@@ -1048,15 +1048,12 @@ def main():
                 sys.exit(1)
         else:
             candidates = ["http://localhost:8000/v1"]
-            prev_ip = read_serving_ip()
-            if prev_ip:
-                candidates.insert(0, f"http://{prev_ip}:{VLLM_PORT}/v1")
             base_url = find_existing_service(candidates, log_fn=log)
             if not base_url:
                 if args.skip_serve:
                     log("ERROR: No serving found and --skip-serve is set.")
                     sys.exit(1)
-                log("No existing service found. Launching new vLLM serving ...")
+                log("No existing service found. Launching local vLLM serving ...")
                 serve_proc = launch_serving(gpu=args.gpu, tp=args.tp, log_fn=log)
                 base_url = wait_for_serving(serve_proc, timeout=600, log_fn=log)
 

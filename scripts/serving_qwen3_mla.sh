@@ -10,8 +10,7 @@
 # based OpenAI-compatible server instead.
 #
 # Usage:
-#   bash scripts/serving_qwen3_mla.sh                   # Default checkpoint
-#   bash scripts/serving_qwen3_mla.sh /path/to/model    # Explicit model path
+#   bash scripts/serving_qwen3_mla.sh /path/to/model
 
 set -euo pipefail
 
@@ -19,11 +18,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 MODEL="${1:-}"
 
-# Default model path: original checkpoint
 if [ -z "$MODEL" ]; then
-    MODEL="/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615"
+    MODEL="${VIDIFY_MLA_MODEL:-models/qwen3-mla}"
     if [ ! -d "$MODEL" ]; then
         echo "ERROR: qwen3-mla checkpoint not found: $MODEL" >&2
+        echo "Set VIDIFY_MLA_MODEL or pass the model path as the first argument." >&2
         exit 1
     fi
 fi

@@ -9,9 +9,9 @@ import subprocess
 def unset_proxy():
     """Remove proxy env vars that interfere with local vLLM connections.
 
-    Cluster service-mesh proxies can intercept multimodal POST payloads
-    and corrupt them.  Call this early — before importing httpx / openai —
-    to ensure direct connections to vLLM.
+    Some proxy settings can intercept multimodal POST payloads and corrupt
+    them.  Call this early — before importing httpx / openai — to ensure
+    direct connections to vLLM.
     """
     for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
                 "all_proxy", "ALL_PROXY"):

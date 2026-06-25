@@ -122,10 +122,7 @@ def load_model(model_path: str, tp_size: int = 1):
         )
     except Exception:
         # Fallback: use the original Qwen3-VL processor
-        qwen3vl_path = os.environ.get(
-            "QWEN3_PROCESSOR_PATH",
-            "/mnt/shared-storage-user/sfteval/sfteval_models/Qwen3-VL-8B-Instruct/"
-        )
+        qwen3vl_path = os.environ.get("QWEN3_PROCESSOR_PATH", "Qwen/Qwen3-VL-8B-Instruct")
         print(f"[model] Falling back to processor from {qwen3vl_path}")
         _processor = AutoProcessor.from_pretrained(
             qwen3vl_path, trust_remote_code=True
@@ -316,8 +313,8 @@ def main():
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(script_dir)
         candidates = [
+            os.environ.get("VIDIFY_MLA_MODEL", ""),
             os.path.join(project_root, "models/qwen3-mla"),
-            "/mnt/shared-storage-gpfs2/sfteval/xtuner_saved_model/internvl3.5/ablate_wuyue2/20260331093205/hf-5615",
         ]
         for c in candidates:
             if os.path.isdir(c):
