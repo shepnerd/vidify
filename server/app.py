@@ -2,10 +2,13 @@
 import os
 import json
 import queue
+import re
 import threading
+import uuid
+from pathlib import Path
 from typing import Literal, Optional, Any, Dict
 
-from fastapi import FastAPI, HTTPException, Request, Form, File, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,7 +22,6 @@ from agent.extensions.workflows.index import wf_index
 from agent.extensions.workflows.ask import wf_ask
 from agent.extensions.workflows.highlights import wf_highlights
 from agent.extensions.skills.persist import load_analysis
-from agent.extensions.workflows.live import create_live_session
 from agent.core.events import event_bus, EventBus, Event
 from agent.config import get_default_config
 from agent.extensions.models.vllm_openai_client import resolve_model_name
@@ -31,6 +33,11 @@ DEFAULT_LLM_BASE_URL = DEFAULT_CONFIG["llm_base_url"]
 DEFAULT_LLM_MODEL = DEFAULT_CONFIG["llm_model"]
 DEFAULT_EMBED_BASE_URL = DEFAULT_CONFIG["embed_base_url"]
 DEFAULT_EMBED_MODEL = DEFAULT_CONFIG["embed_model"]
+UPLOAD_DIR = Path(os.getenv("VIDIFY_UPLOAD_DIR", "cache/uploads"))
+MAX_UPLOAD_BYTES = int(os.getenv("VIDIFY_MAX_UPLOAD_BYTES", str(2 * 1024 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".wmv", ".flv", ".3gp"
+}
 
 # Create directories if not exist
 os.makedirs("static", exist_ok=True)
@@ -164,6 +171,50 @@ def _resolve_llm_model(llm_model: str, llm_base_url: str, direct_model: bool = F
     return resolve_model_name(llm_model, llm_base_url)
 
 
+def _safe_upload_name(filename: str | None) -> str:
+    original = Path(filename or "upload.mp4").name
+    suffix = Path(original).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported video type: {suffix or '(none)'}",
+        )
+
+    stem = Path(original).stem
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "upload"
+    return f"{stem}_{uuid.uuid4().hex[:12]}{suffix}"
+
+
+async def _save_upload(file: UploadFile) -> str:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = UPLOAD_DIR / _safe_upload_name(file.filename)
+    written = 0
+
+    try:
+        with out_path.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload exceeds limit of {MAX_UPLOAD_BYTES} bytes",
+                    )
+                out.write(chunk)
+    except Exception:
+        try:
+            out_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    finally:
+        await file.close()
+
+    return str(out_path)
+
+
 # --------- Endpoints ---------
 
 @app.get("/health")
@@ -282,17 +333,31 @@ async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload")
-async def upload_video(request: Request, file: UploadFile = File(...), mode: str = Form(...)):
-    # Save uploaded file
-    file_path = f"cache/{file.filename}"
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+async def upload_video(request: Request):
+    try:
+        form = await request.form()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Video uploads require python-multipart to be installed",
+        ) from exc
+
+    file = form.get("file")
+    if not hasattr(file, "filename") or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="Missing uploaded video file")
+
+    mode = str(form.get("mode", "detailed"))
+    mode = normalize_mode(mode)
+    if mode not in {"brief", "detailed", "highlights"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported mode: {mode}")
+
+    file_path = await _save_upload(file)  # type: ignore[arg-type]
 
     # Process video
     asset = load_video("local", file_path, "cache")
     result = run(
         asset,
-        normalize_mode(mode),
+        mode,
         {"llm_base_url": DEFAULT_LLM_BASE_URL, "llm_model": DEFAULT_LLM_MODEL},
     )
 
@@ -377,6 +442,8 @@ def live_start(req: LiveStartReq):
         "embed_model": req.embed_model,
     }
     try:
+        from agent.extensions.workflows.live import create_live_session
+
         session = create_live_session(session_id, cfg)
         session.start()
         _live_sessions[session_id] = session

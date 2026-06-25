@@ -34,8 +34,20 @@ This approach makes video understanding both smarter and faster — a 30-minute 
 ### 1. Install
 
 ```bash
-pip install -r requirements.txt
-# System deps: ffmpeg, yt-dlp, Python 3.11+
+# Lightweight CLI/API install
+pip install -e .
+
+# System deps: ffmpeg, Python 3.11+
+```
+
+Optional feature groups:
+
+```bash
+# ASR fallback, OCR, emotion analysis, live video, and local serving helpers
+pip install -e ".[asr,ocr,emotion,live,serving]"
+
+# Previous all-in install for local development
+pip install -r requirements-full.txt
 ```
 
 ### 1.5 Hermes

@@ -79,7 +79,7 @@ def hermes_install_skill(dest_root, strategy, force):
 @click.option('--include-web-search', is_flag=True, help='Enhance results with web search')
 @click.option('--google-api-key', default=None, help='Google Custom Search API key')
 @click.option('--google-search-engine-id', default=None, help='Google Custom Search Engine ID')
-@click.option('--direct-model', is_flag=True, help='Load the model in-process via transformers')
+@click.option('--direct-model', is_flag=True, help='Load the model in-process')
 @click.option('--model-path', default=None, help='Model path or HuggingFace model ID for direct mode')
 @click.option('--tokenizer-path', default=None, help='Tokenizer path override for direct mode')
 @click.option('--stream-source', default='webcam', type=click.Choice(['webcam', 'stream']),
@@ -167,7 +167,7 @@ def analyze(ctx, source_type, uri, mode, cache_root, question, max_frames, whisp
 @click.option('--vision-model', default=None,
               help='Model for visual analysis (default: same as chat)')
 @click.option('--direct', is_flag=True,
-              help='Load model in-process via transformers (no vLLM server needed)')
+              help='Load model in-process (no model server needed)')
 @click.option('--model-path', default=None,
               help='HuggingFace model ID or local path for --direct mode')
 @click.option('--dtype', default='auto', type=click.Choice(['auto', 'bfloat16', 'float16', 'float32']),
@@ -195,7 +195,7 @@ def chat(ctx, source_type, uri, cache_root, chat_model, chat_api_base,
         analysis = load_analysis(asset.cache_dir)
 
     if direct:
-        # Pure transformers mode — no server required
+        # Direct in-process mode — no server required
         from agent.extensions.models.transformers_client import TransformersVLClient
 
         path = model_path or cfg.get("model_path") or "Qwen/Qwen2.5-VL-7B-Instruct"

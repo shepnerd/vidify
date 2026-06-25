@@ -1,58 +1,22 @@
+# Core CLI/API dependencies.
+#
+# Advanced features have optional extras in setup.py, for example:
+#   pip install -e ".[asr,ocr,emotion,live,serving]"
+# or use requirements-full.txt for the previous all-in install.
 fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.6
 python-multipart>=0.0.9
-
-openai>=1.40.0
-
-yt-dlp>=2024.7.0
-pillow>=10.0.0
-
-# Whisper ASR via HuggingFace transformers (supports NPU/CUDA/CPU)
-# faster-whisper removed: CTranslate2 backend doesn't support Ascend NPUs
-
-faiss-cpu>=1.8.0
-numpy>=1.26
-
-# 可选：如果你需要更强的解析/日志
-rich>=13.7
-
-# 新增：直接加载模型
-vllm>=0.19.0
-transformers>=4.40.0
-
-# 新增：Web搜索功能
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-torch>=2.0.0
-
-# 新增：OCR功能
-paddlepaddle>=2.6.0
-paddleocr>=2.7.0
-pytesseract>=0.3.10
-
-# 新增：情感分析
-librosa>=0.10.0
-fer>=22.0.0
-
-# 对象检测（AGPL-licensed, optional — install with: pip install vidify[detection])
-# ultralytics>=8.0.0
-
-# 新增：翻译（使用transformers，已有）
-
-# 新增：实时流处理
-opencv-python>=4.8.0
-
-# 测试
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-
-# 配置
-PyYAML>=6.0
-
-# CLI增强
-click>=8.0.0
-
-# GUI
 jinja2>=3.0.0
 aiofiles>=0.23.0
+
+openai>=1.40.0
+yt-dlp>=2024.7.0
+pillow>=10.0.0
+numpy>=1.26
+faiss-cpu>=1.8.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+rich>=13.7
+PyYAML>=6.0
+click>=8.0.0

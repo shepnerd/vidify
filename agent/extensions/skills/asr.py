@@ -9,27 +9,67 @@ from agent.core.schemas import Transcript, ASRSegment
 from agent.extensions.utils.cache import write_json, exists_nonempty, read_json
 from agent.core.retry import retry_with_backoff
 
-try:
-    import torch
-except ImportError:
-    torch = None
-
-try:
-    from transformers import WhisperProcessor, WhisperForConditionalGeneration
-except ImportError:
-    WhisperProcessor = None
-    WhisperForConditionalGeneration = None
-
-try:
-    from faster_whisper import WhisperModel as FasterWhisperModel
-except ImportError:
-    FasterWhisperModel = None
+torch = None
+WhisperProcessor = None
+WhisperForConditionalGeneration = None
+FasterWhisperModel = None
+_TORCH_IMPORT_ATTEMPTED = False
+_TRANSFORMERS_IMPORT_ATTEMPTED = False
+_FASTER_WHISPER_IMPORT_ATTEMPTED = False
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 _MODEL_CACHE = {}
+
+
+def _get_torch():
+    global torch, _TORCH_IMPORT_ATTEMPTED
+    if torch is not None:
+        return torch
+    if not _TORCH_IMPORT_ATTEMPTED:
+        _TORCH_IMPORT_ATTEMPTED = True
+        try:
+            import torch as torch_mod
+            torch = torch_mod
+        except ImportError:
+            torch = None
+    return torch
+
+
+def _get_whisper_transformers():
+    global WhisperProcessor, WhisperForConditionalGeneration
+    global _TRANSFORMERS_IMPORT_ATTEMPTED
+    if WhisperProcessor is not None and WhisperForConditionalGeneration is not None:
+        return WhisperProcessor, WhisperForConditionalGeneration
+    if not _TRANSFORMERS_IMPORT_ATTEMPTED:
+        _TRANSFORMERS_IMPORT_ATTEMPTED = True
+        try:
+            from transformers import (
+                WhisperProcessor as processor_cls,
+                WhisperForConditionalGeneration as model_cls,
+            )
+            WhisperProcessor = processor_cls
+            WhisperForConditionalGeneration = model_cls
+        except ImportError:
+            WhisperProcessor = None
+            WhisperForConditionalGeneration = None
+    return WhisperProcessor, WhisperForConditionalGeneration
+
+
+def _get_faster_whisper_model():
+    global FasterWhisperModel, _FASTER_WHISPER_IMPORT_ATTEMPTED
+    if FasterWhisperModel is not None:
+        return FasterWhisperModel
+    if not _FASTER_WHISPER_IMPORT_ATTEMPTED:
+        _FASTER_WHISPER_IMPORT_ATTEMPTED = True
+        try:
+            from faster_whisper import WhisperModel as whisper_model_cls
+            FasterWhisperModel = whisper_model_cls
+        except ImportError:
+            FasterWhisperModel = None
+    return FasterWhisperModel
 
 
 def resolve_whisper_model(model_size: str = "small") -> str:
@@ -63,14 +103,16 @@ def _is_faster_whisper_dir(model_id: str) -> bool:
 def _resolve_backend(model_size: str = "small") -> tuple[str, str]:
     model_id = resolve_whisper_model(model_size)
     if _is_faster_whisper_dir(model_id):
-        if FasterWhisperModel is None:
+        if _get_faster_whisper_model() is None:
             raise ImportError("faster-whisper is not installed")
         return "faster-whisper", model_id
 
-    if torch is None or WhisperProcessor is None or WhisperForConditionalGeneration is None:
+    torch_mod = _get_torch()
+    processor_cls, model_cls = _get_whisper_transformers()
+    if torch_mod is None or processor_cls is None or model_cls is None:
         from agent.config import get_model_path
         fallback_dir = get_model_path(f"faster-whisper-{model_size}")
-        if _is_faster_whisper_dir(fallback_dir) and FasterWhisperModel is not None:
+        if _is_faster_whisper_dir(fallback_dir) and _get_faster_whisper_model() is not None:
             return "faster-whisper", fallback_dir
         raise ImportError("ASR dependencies are not installed")
 
@@ -79,17 +121,18 @@ def _resolve_backend(model_size: str = "small") -> tuple[str, str]:
 
 def _detect_device():
     """Pick best available device: NPU > CUDA > CPU."""
-    if torch is None:
+    torch_mod = _get_torch()
+    if torch_mod is None:
         raise ImportError("torch is required for ASR")
     try:
         import torch_npu  # noqa: F401
-        if torch.npu.is_available():
-            return torch.device("npu")
+        if torch_mod.npu.is_available():
+            return torch_mod.device("npu")
     except ImportError:
         pass
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+    if torch_mod.cuda.is_available():
+        return torch_mod.device("cuda")
+    return torch_mod.device("cpu")
 
 
 def _get_audio_duration(audio_path: str) -> float:
@@ -127,7 +170,8 @@ def _get_model(model_size: str = "small", device: str = None, compute_type: str 
     backend, model_id = _resolve_backend(model_size)
     resolved_device = device
     if backend == "transformers":
-        resolved_device = torch.device(device) if device else _detect_device()
+        torch_mod = _get_torch()
+        resolved_device = torch_mod.device(device) if device else _detect_device()
     else:
         fw_device, fw_index = _normalize_faster_whisper_device(device)
         resolved_device = f"{fw_device}:{fw_index}" if fw_index is not None else fw_device
@@ -138,16 +182,19 @@ def _get_model(model_size: str = "small", device: str = None, compute_type: str 
 
     logger.info("Loading %s ASR model %s on %s", backend, model_id, resolved_device)
     if backend == "transformers":
-        processor = WhisperProcessor.from_pretrained(model_id)
-        model = WhisperForConditionalGeneration.from_pretrained(model_id)
-        dtype = torch.float16 if resolved_device.type in ("cuda", "npu") else torch.float32
+        torch_mod = _get_torch()
+        processor_cls, model_cls = _get_whisper_transformers()
+        processor = processor_cls.from_pretrained(model_id)
+        model = model_cls.from_pretrained(model_id)
+        dtype = torch_mod.float16 if resolved_device.type in ("cuda", "npu") else torch_mod.float32
         model = model.to(resolved_device).to(dtype)
         model.eval()
         _MODEL_CACHE[cache_key] = (backend, processor, model, resolved_device)
     else:
         fw_device, fw_index = _normalize_faster_whisper_device(device)
         fw_compute = compute_type or ("float16" if fw_device == "cuda" else "int8")
-        model = FasterWhisperModel(model_id, device=fw_device, device_index=fw_index, compute_type=fw_compute)
+        model_cls = _get_faster_whisper_model()
+        model = model_cls(model_id, device=fw_device, device_index=fw_index, compute_type=fw_compute)
         _MODEL_CACHE[cache_key] = (backend, None, model, resolved_device)
 
     return _MODEL_CACHE[cache_key]
@@ -219,17 +266,18 @@ def _chunk_audio(audio: np.ndarray, sr: int = 16000, chunk_sec: float = 30.0):
 
 
 def _detect_available_devices() -> list[str]:
-    if torch is None:
+    torch_mod = _get_torch()
+    if torch_mod is None:
         return ["cpu"]
     try:
         import torch_npu  # noqa: F401
-        if torch.npu.is_available():
-            return [f"npu:{i}" for i in range(torch.npu.device_count())]
+        if torch_mod.npu.is_available():
+            return [f"npu:{i}" for i in range(torch_mod.npu.device_count())]
     except ImportError:
         pass
 
-    if torch.cuda.is_available():
-        return [f"cuda:{i}" for i in range(torch.cuda.device_count())]
+    if torch_mod.cuda.is_available():
+        return [f"cuda:{i}" for i in range(torch_mod.cuda.device_count())]
 
     return ["cpu"]
 
@@ -331,7 +379,8 @@ def _transcribe_window(audio_path: str,
         return Transcript(segments=segs, language=getattr(info, "language", None))
 
     audio = _load_audio(audio_path, offset_sec=start_offset_sec, duration_sec=duration_sec)
-    dtype = torch.float16 if dev.type in ("cuda", "npu") else torch.float32
+    torch_mod = _get_torch()
+    dtype = torch_mod.float16 if dev.type in ("cuda", "npu") else torch_mod.float32
 
     segs = []
     seg_idx = 0
@@ -344,7 +393,7 @@ def _transcribe_window(audio_path: str,
             chunk, sampling_rate=16000, return_tensors="pt"
         ).input_features.to(dev).to(dtype)
 
-        with torch.no_grad():
+        with torch_mod.no_grad():
             predicted_ids = model.generate(
                 input_features,
                 max_new_tokens=448,
