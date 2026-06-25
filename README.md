@@ -609,6 +609,10 @@ Vidify can run against Ascend-backed vLLM deployments through the same
 OpenAI-compatible API used for GPU serving. The project includes generic helper
 scripts for common Qwen models:
 
+For public docs, keep deployment examples generic. Store provider-specific
+environment names, internal registry URLs, mount paths, and scheduler commands
+in local docs or `.env` files instead of committed README changes.
+
 ```bash
 # Qwen3.5-9B
 TP_SIZE=2 bash scripts/serving_qwen3_5_ascend.sh /models/Qwen3.5-9B
