@@ -79,7 +79,8 @@ If no YAML file exists, built-in defaults are used.
 
 ## vLLM Setup
 
-Vidify requires a vLLM server providing OpenAI-compatible endpoints.
+Vidify requires an OpenAI-compatible multimodal endpoint. vLLM is the default
+serving target for local GPU/NPU setups.
 
 ### Minimum command
 
@@ -98,10 +99,10 @@ vllm serve /path/to/model \
 | `--tensor-parallel-size N` | Set to match your GPU count. |
 | `--max-model-len 32768` | Needed for long video contexts. |
 
-### Managed GPU/NPU serving
+### GPU/NPU serving
 
-For managed GPU or NPU environments, start vLLM with your platform's scheduler
-and pass the OpenAI-compatible endpoint to Vidify:
+For GPU or NPU environments, start vLLM with your platform's scheduler and pass
+the OpenAI-compatible endpoint to Vidify:
 
 ```bash
 python -m agent.main analyze local video.mp4 \
@@ -112,12 +113,24 @@ python -m agent.main analyze local video.mp4 \
 Set `LLM_BASE_URL` and `LLM_MODEL` in `.env` or `config.yaml`, or pass
 `--api-base` to the validation scripts.
 
+See [Deployment](deployment.md) for helper scripts and endpoint validation.
+
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
+| `LLM_BASE_URL` | OpenAI-compatible chat/completions endpoint |
+| `LLM_MODEL` | Default multimodal model name |
+| `EMBED_BASE_URL` | OpenAI-compatible embeddings endpoint |
+| `EMBED_MODEL` | Default embedding model name |
+| `CACHE_ROOT` | Runtime cache directory |
 | `GOOGLE_API_KEY` | Google Custom Search API key |
 | `GOOGLE_SEARCH_ENGINE_ID` | Google Custom Search engine ID |
+| `VIDIFY_PARALLEL_SEGMENTS` | Enable or disable segment-level parallel processing |
+| `VIDIFY_PARALLEL_WORKERS` | Override segment worker count |
+| `VIDIFY_PARALLEL_ASR` | Enable or disable long-audio ASR parallelism |
+| `VIDIFY_ASR_WORKERS` | Override ASR worker count |
+| `VIDIFY_ASR_DEVICES` | Comma-separated ASR worker devices, such as `cpu,cpu` |
 
 See [GOOGLE_SEARCH_SETUP.md](../GOOGLE_SEARCH_SETUP.md) for web search setup.
 

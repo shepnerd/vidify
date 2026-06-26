@@ -12,23 +12,26 @@ Workflows are high-level pipelines that compose skills into end-to-end processin
 | Ask | `ask.py` | VideoAsset + question (needs index) | Answer with evidence |
 | Highlights | `highlights.py` | VideoAsset (needs analysis) | Clips + optional reel |
 | Report | `report.py` | VideoAsset | Structured analysis report |
-| Analyze | `analyze.py` | VideoAsset + mode | Routes to brief or detailed |
+| Analyze | `analyze.py` | VideoAsset + mode | Routes to the requested workflow mode |
 
 ## Brief Workflow
 
-Fast analysis for quick video insights.
+Fast ASR-first analysis for quick video insights.
 
 **Steps:**
 1. Probe video metadata (duration, resolution, fps)
-2. Sample frames using scene detection (threshold: 0.3, max: 64)
-3. Caption frames with vision model
-4. Extract audio and run Whisper ASR
-5. Build structured timeline (chapters + events) via LLM
-6. Optionally enhance with web search
+2. Parse embedded subtitles when available
+3. Extract audio and run Whisper ASR if subtitles are missing
+4. Assess transcript sufficiency using coverage and word-count thresholds
+5. Skip visual captioning when transcript coverage is sufficient, unless forced
+6. Sample and caption frames when visual processing is needed
+7. Build structured timeline (chapters + events) via LLM
+8. Optionally enhance with web search
 
 **Parameters:**
 - `max_frames` — default 64
 - `whisper_model` — default "small" (set `None` to skip ASR)
+- `force_visual` — override ASR-first skipping and always run visual captioning
 - `include_web_search` — default False
 - `direct_model` / `model_path` — for local model loading
 
@@ -42,6 +45,7 @@ Comprehensive analysis with all available skills.
 - Emotion analysis — audio (Wav2Vec2) + visual (FER)
 - ASR translation to target language (default: Chinese)
 - Lower scene detection threshold (0.25) and more frames (128)
+- Optional long-video segment parallelism and parallel ASR
 
 **Parameters:**
 - `max_frames` — default 128

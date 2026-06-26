@@ -2,86 +2,65 @@
 
 [简体中文](readme_cn.md)
 
-Video understanding agent — feed it a YouTube URL and get structured analysis, searchable index, Q&A, highlights, and reports.
+Vidify is a video understanding agent. Give it a YouTube URL, HTTP video URL, or
+local video and get structured analysis, searchable indexes, Q&A, highlights,
+reports, and live-stream understanding.
 
 ## What It Does
 
 | Capability | Description |
 |------------|-------------|
-| **Analyze** | Download, extract subtitles/metadata, ASR, conditionally caption frames, build timeline |
-| **Understand** | OCR, object detection, emotion analysis, translation |
-| **Search** | FAISS index over frames + ASR + metadata, semantic Q&A with targeted visual lookup |
-| **Edit** | Auto-detect highlights, export clips, assemble reels |
-| **Enhance** | Web search context, multi-language support |
-| **Report** | Comprehensive analysis report generation |
-| **Stream** | Real-time live stream / webcam processing with adaptive segmentation and two-level memory |
-| **Parallel Segments** | Split long videos into temporal segments, process in parallel, merge results |
-| **Resilience** | Retry with exponential backoff, graceful degradation for optional skills, lifecycle hooks |
+| Analyze | Download media, extract subtitles/metadata, run ASR when needed, and build timelines |
+| Understand | Caption frames, read OCR text, detect objects, analyze emotion, and translate transcripts |
+| Search & Ask | Build a FAISS index over transcript, frames, and metadata for evidence-backed Q&A |
+| Edit | Detect highlights, export clips, and optionally assemble reels |
+| Stream | Process webcams or RTMP/HTTP streams with adaptive segmentation and live Q&A |
+| Operate | Retry transient failures, degrade optional skills gracefully, emit progress events, and run hooks |
 
-## Design Philosophy: ASR-First, Visuals as Last Resort
-
-Most videos (documentaries, vlogs, presentations, interviews, movie reviews, sports commentary) convey their key information through speech or subtitles. Vidify is designed around this insight:
-
-1. **Subtitles first** — For YouTube/web videos, embedded subtitles (manual or auto-generated) are extracted via yt-dlp and used as the primary transcript. These are free and often higher quality than ASR.
-2. **ASR fallback** — If no subtitles are available, Whisper ASR transcribes the audio.
-3. **Metadata context** — Video title, description, tags, and uploader info from the source platform are extracted and used as context for timeline building and Q&A.
-4. **Sufficiency check** — A fast heuristic (no LLM call) assesses whether the transcript covers enough of the video to skip expensive MLLM visual processing. Criteria: speech coverage ratio (default ≥30%) and word count (default ≥50 words).
-5. **Conditional visual processing** — MLLM frame captioning only runs when the transcript is insufficient (e.g., silent videos, music videos, or videos with minimal speech).
-6. **Targeted visual lookup** — In Q&A mode, when a question requires visual details (e.g., "what equation is on the board?"), only the frames at relevant timestamps are sampled and captioned, rather than the entire video.
-
-This approach makes video understanding both smarter and faster — a 30-minute lecture with subtitles can be analyzed without a single MLLM call.
+Vidify is ASR-first: subtitles and speech usually carry the main story, so visual
+model calls are skipped when transcript coverage is sufficient. See
+[Project Overview](docs/overview.md) for the full processing flow.
 
 ## Quick Start
 
 ### 1. Install
 
 ```bash
-# Lightweight CLI/API install
 pip install -e .
-
-# System deps: ffmpeg, Python 3.11+
 ```
+
+System requirements: Python 3.11+, `ffmpeg`, and `yt-dlp`.
 
 Optional feature groups:
 
 ```bash
-# ASR fallback, OCR, emotion analysis, live video, and local serving helpers
 pip install -e ".[asr,ocr,emotion,live,serving]"
-
-# Previous all-in install for local development
 pip install -r requirements-full.txt
 ```
 
-### 1.5 Hermes
-
-This repo ships a Hermes-native skill at `.agents/skills/media/vidify`, so Hermes can use Vidify directly from this checkout as a project-local skill.
-
-Install it into your user-level Hermes skills directory with:
-
-```bash
-python -m agent.main hermes install-skill
-```
-
-That installs into `~/.hermes/skills/media/vidify` by symlink by default. Use `--strategy copy` if you want a standalone copy instead.
-
-### 2. Optional runtime environment
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env with your local model endpoint, model name, and cache path.
 ```
 
-### 3. Start model serving
+Edit `.env` when you need custom model endpoints, model names, cache paths, or
+web search credentials. Full details are in [Configuration](docs/configuration.md).
 
-**Qwen3.5 (recommended):**
+### 3. Start Model Serving
+
+Vidify expects an OpenAI-compatible multimodal endpoint, usually vLLM:
+
 ```bash
-# vLLM >= 0.19.0 required for Qwen3.5 support
+# vLLM >= 0.19.0 is required for Qwen3.5 support.
 pip install "vllm>=0.19.0"
 
-# Auto-detect local model or download from HuggingFace
 bash scripts/serving_qwen3_5.sh
+```
 
-# Or manually:
+Manual example:
+
+```bash
 vllm serve Qwen/Qwen3.5-9B \
   --host 0.0.0.0 --port 8000 \
   --max-model-len 65536 \
@@ -89,574 +68,104 @@ vllm serve Qwen/Qwen3.5-9B \
   --allowed-local-media-path $(pwd)/cache
 ```
 
-**GPU validation against an existing endpoint:**
-```bash
-bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
-```
-
-**Qwen3-VL (legacy):**
-```bash
-bash scripts/serving_qwen3vl.sh
-```
-
-On multi-GPU hosts:
-```bash
-TP_SIZE=2 MAX_MODEL_LEN=131072 bash scripts/serving_qwen3_5.sh
-```
+See [Deployment](docs/deployment.md) for GPU, Ascend/NPU, Docker, and validation
+commands.
 
 ### 4. Run
 
-**CLI:**
+CLI:
+
 ```bash
 python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
-
-# With structured JSON logging
-python -m agent.main --log-format json analyze youtube "https://www.youtube.com/watch?v=..." --mode detailed
-
-# Install the Hermes skill into ~/.hermes/skills/media/vidify
-python -m agent.main hermes install-skill
+python -m agent.main analyze local media/example.mp4 --mode brief
+python -m agent.main analyze local media/example.mp4 --mode ask --question "What changed?"
 ```
 
-**REST API:**
+REST API and web UI:
+
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 9000
 
-# Standard (returns final JSON)
 curl -X POST http://localhost:9000/analyze \
   -H 'Content-Type: application/json' \
-  -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
-
-# Streaming (returns Server-Sent Events with real-time progress)
-curl -N -X POST http://localhost:9000/analyze/stream \
-  -H 'Content-Type: application/json' \
-  -d '{"source_type":"youtube", "uri":"https://www.youtube.com/watch?v=...", "mode":"detailed"}'
+  -d '{"source_type":"youtube","uri":"https://www.youtube.com/watch?v=...","mode":"detailed"}'
 ```
 
-**Web GUI:**
-Open `http://localhost:9000` after starting the server.
+Open `http://localhost:9000` for the web interface.
 
 ## Workflow Modes
 
-`brief` is the canonical lightweight mode. `quick` is still accepted as a legacy alias in the CLI and API.
+`brief` is the canonical lightweight mode. `quick` is still accepted as a legacy
+alias in the CLI and API.
 
-```bash
-# Brief summary (ASR-first, skips visuals if transcript is sufficient)
-python -m agent.main analyze youtube URL --mode brief
+| Mode | Use It For | Example |
+|------|------------|---------|
+| `brief` | Fast ASR-first summary | `python -m agent.main analyze youtube URL --mode brief` |
+| `detailed` | OCR, object detection, emotion, translation, and richer timelines | `python -m agent.main analyze youtube URL --mode detailed` |
+| `ask` | Question-answering over an indexed video | `python -m agent.main analyze youtube URL --mode ask --question "What are the conclusions?"` |
+| `highlights` | Clip export and optional reels | `python -m agent.main analyze youtube URL --mode highlights` |
+| `report` | Structured report generation, optionally with web search | `python -m agent.main analyze youtube URL --mode report --include-web-search` |
+| `live` | Webcam, RTMP, or HTTP stream understanding | `python -m agent.main analyze local webcam --mode live` |
 
-# Full analysis (OCR, emotions, objects, ASR, translation)
-python -m agent.main analyze youtube URL --mode detailed
-
-# Force visual processing even when transcript is sufficient
-python -m agent.main analyze youtube URL --mode brief --force-visual
-
-# Build search index, then ask questions
-python -m agent.main analyze youtube URL --mode ask --question "What are the key conclusions?"
-
-# Ask a visual question (triggers targeted frame lookup)
-python -m agent.main analyze youtube URL --mode ask --question "What equation is shown on the board at 5:30?"
-
-# Export highlight clips
-python -m agent.main analyze youtube URL --mode highlights
-
-# Generate report with web search
-python -m agent.main analyze youtube URL --mode report --include-web-search
-
-# Live stream from webcam
-python -m agent.main analyze local webcam --mode live
-
-# Live stream from RTMP/HTTP URL
-python -m agent.main analyze local stream --mode live --stream-source stream --stream-url rtmp://host/live/key
-```
+See [Workflows](docs/workflows.md) and [API Reference](docs/api.md) for complete
+parameters and request schemas.
 
 ## Hermes
 
-Vidify supports Hermes in two ways:
-
-1. Native skill integration through `.agents/skills/media/vidify`
-2. Stable Python helpers in `agent.integrations.hermes`
-
-The Hermes wrappers prefer the installed `vidify` CLI, but they also fall back to `python -m agent.main` from this repo, which makes source-checkout use straightforward.
-
-If you are migrating an older OpenClaw setup, this repo still ships the `openclaw/` skill as well.
-
-### Processing Flow
-
-```
-                    ┌─────────────┐
-                    │  Download   │
-                    │  + Metadata │ ← yt-dlp extracts info.json, subtitles
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │   Probe     │ ← ffprobe: duration, fps, resolution
-                    └──────┬──────┘
-                           │
-              ┌────────────▼────────────┐
-              │  Subtitles available?    │
-              └──┬──────────────────┬───┘
-                 │ yes              │ no
-          ┌──────▼──────┐   ┌──────▼──────┐
-          │ Parse subs  │   │ Whisper ASR │
-          └──────┬──────┘   └──────┬──────┘
-                 └────────┬────────┘
-                          │
-                   ┌──────▼──────┐
-                   │ Sufficiency │ ← coverage ≥ 30%? words ≥ 50?
-                   │   check     │
-                   └──┬──────┬───┘
-                      │      │
-            sufficient│      │ insufficient
-                      │      │
-               ┌──────▼──┐ ┌─▼──────────┐
-               │  Skip   │ │ MLLM frame │
-               │  MLLM   │ │ captioning │
-               └──────┬──┘ └─┬──────────┘
-                      └───┬──┘
-                          │
-                   ┌──────▼──────┐
-                   │  Timeline   │ ← uses transcript + metadata + frames (if any)
-                   └──────┬──────┘
-                          │
-                   ┌──────▼──────┐
-                   │    Save     │
-                   └─────────────┘
-```
-
-## Online / Streaming Processing
-
-Vidify supports real-time video understanding from webcams and RTMP/HTTP streams. The streaming architecture is inspired by [InternLM-XComposer-2.5-OmniLive](https://github.com/InternLM/InternLM-XComposer/tree/main/InternLM-XComposer-2.5-OmniLive).
-
-### Architecture
-
-The streaming pipeline uses a three-module design:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Live Stream Pipeline                        │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────────┐   ┌───────────────────┐   │
-│  │  Perception   │   │     Memory       │   │    Reasoning      │   │
-│  │              │   │                  │   │                   │   │
-│  │ Frame capture│──▶│ Local segments   │──▶│ Query retrieval   │   │
-│  │ Scene detect │   │ Global summary   │   │ LLM Q&A          │   │
-│  │ SlowFast     │   │ Backup-on-query  │   │ Context building  │   │
-│  └──────────────┘   └──────────────────┘   └───────────────────┘   │
-│       │                                            │               │
-│       ▼                                            ▼               │
-│  Frame-level results                     Answer + evidence         │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Module A: Perception** — Captures frames at configurable FPS, detects scene changes using CLIP embedding similarity (threshold-based, not fixed windows), and routes each frame through heavy or light analysis models (SlowFast strategy).
-
-**Module B: Memory** — Maintains a two-level memory hierarchy:
-  - *Local memory*: Per-segment compressed representations (caption + CLIP embedding) for fine-grained temporal retrieval
-  - *Global memory*: LLM-generated summary across all segments for holistic understanding
-
-**Module C: Reasoning** — On query, snapshots the memory (backup-on-query pattern for consistency), retrieves relevant segments via cosine similarity, and generates answers using the full context.
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Adaptive segmentation** | CLIP-based scene-change detection creates semantically meaningful segments instead of fixed-duration windows |
-| **SlowFast analysis** | Heavy model (7B MLLM + OCR + detection) every N frames; light model (small MLLM + OCR) on others |
-| **Two-level memory** | Local per-segment memory for retrieval + global summary for holistic understanding |
-| **Live Q&A** | Ask questions mid-stream; memory is snapshotted for consistency while processing continues |
-| **Backup-on-query** | Deep-copy of memory state ensures retrieval operates on consistent data |
-
-### CLI Usage
+This repo ships a Hermes-native skill at `.agents/skills/media/vidify`.
 
 ```bash
-# Live stream from webcam (default)
-python -m agent.main analyze local webcam --mode live
-
-# RTMP stream
-python -m agent.main analyze local stream --mode live \
-  --stream-source stream --stream-url rtmp://host/live/key
-
-# HTTP stream (e.g., IP camera)
-python -m agent.main analyze local stream --mode live \
-  --stream-source stream --stream-url http://camera-ip/video
+python -m agent.main hermes install-skill
 ```
 
-### REST API
+The installer symlinks the skill into `~/.hermes/skills/media/vidify` by default.
+Use `--strategy copy` for a standalone copy. The legacy `openclaw/` skill remains
+available for older setups.
 
-Start the server, then use the `/live/*` endpoints:
+## Testing
+
+Run the fast test suite:
 
 ```bash
-uvicorn server.app:app --host 0.0.0.0 --port 9000
+pytest tests/
 ```
 
-**Start a session:**
-```bash
-curl -X POST http://localhost:9000/live/start \
-  -H 'Content-Type: application/json' \
-  -d '{"source": "stream", "stream_url": "rtmp://host/live/key", "fps": 1}'
-# Returns: {"session_id": "live_0001", "status": "started"}
-```
-
-**Ask a question mid-stream:**
-```bash
-curl -X POST http://localhost:9000/live/ask \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id": "live_0001", "question": "What is happening in the video?"}'
-# Returns: {"answer": "...", "relevant_segments": [...], "global_summary": "..."}
-```
-
-**Check status:**
-```bash
-curl http://localhost:9000/live/status/live_0001
-# Returns: {"running": true, "segments_processed": 12, "total_duration_sec": 180.0, ...}
-```
-
-**Stop and get final memory:**
-```bash
-curl -X POST http://localhost:9000/live/stop \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id": "live_0001"}'
-# Returns: {"memory": {...}, "total_frame_results": 180}
-```
-
-### Streaming Configuration
-
-Settings in `workflows.yaml` under `live_stream`:
-
-```yaml
-live_stream:
-  source: webcam               # "webcam" or "stream"
-  fps: 1                       # frames per second to process
-  heavy_interval: 5            # use heavy model every N frames
-  similarity_threshold: 0.9    # CLIP cosine similarity for scene change
-  min_segment_frames: 3        # minimum frames before allowing new segment
-  max_segment_frames: 16       # force new segment after this many frames
-```
-
-Model tiers in `models.yaml`:
-
-```yaml
-mllm:
-  heavy:
-    model_name: qwen3.5-9b     # Qwen3.5 unified VL model (recommended)
-    base_url: http://localhost:8000/v1
-  light:
-    model_name: qwen3.5-4b     # Lightweight model for fast per-frame captioning
-    base_url: http://localhost:8000/v1
-```
-
-## E2E Testing
-
-### GPU Endpoint
-
-The `run_test_gpu.sh` script runs validation against an existing GPU-backed
-OpenAI-compatible endpoint.
+Validate against an existing model endpoint:
 
 ```bash
-# Use an already-running vLLM endpoint
 bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
-
-# Run specific tests only
-bash scripts/run_test_gpu.sh --api-base http://localhost:8000/v1 \
-  --video media/my_video.mp4 --tests "frame_caption video_qa highlights"
+python scripts/test_all.py --video-path media/my_video.mp4 --api-base http://localhost:8000/v1
 ```
 
-### Local / Manual
-
-The `test_all.py` script runs all 17 skill tests against a local video:
-
-```bash
-# Auto-detect/launch serving + run all tests
-python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4
-
-# Use existing endpoint
-python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --api-base http://localhost:8000/v1
-
-# Specific tests
-python scripts/test_all.py --video-path media/taste_in_china_s1e1.mp4 --tests frames qa highlights
-```
-
-Tests: `video_probe` | `frame_sample` | `audio_extract` | `asr` | `ocr` | `object_detection` | `subtitle_parse` | `metadata_extract` | `content_sufficiency` | `needs_visual` | `asr_first_brief` | `frame_caption` | `video_caption` | `timeline` | `video_qa` | `highlights` | `video_edit`
-
-### YouTube E2E
-
-The `test_youtube_e2e.py` script auto-discovers or launches model serving, downloads a YouTube video, and runs a full test suite:
-
-```bash
-# Auto-detect/launch serving + run all tests
-python scripts/test_youtube_e2e.py
-
-# Use existing endpoint
-python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
-
-# Custom video, specific tests
-python scripts/test_youtube_e2e.py \
-    --youtube "https://www.youtube.com/watch?v=..." \
-    --tests frames qa multi_turn_qa
-```
-
-Tests: `frames` | `batch_frames` | `video_caption` | `qa` | `multi_turn_qa`
-
-See [Testing Guide](docs/testing.md) for full details.
-
-## Production Features
-
-Vidify includes production-hardening patterns inspired by large-scale agent architectures:
-
-### Retry with Exponential Backoff
-
-All model calls (vLLM chat, Whisper ASR, embedding API) are wrapped with automatic retry on transient failures (timeouts, connection errors, 5xx, rate limits). Configurable per-call: `max_retries`, `base_delay`, `max_delay` with jitter to avoid thundering herd.
-
-```python
-from agent.core.retry import retry_with_backoff
-
-@retry_with_backoff(max_retries=3, base_delay=2.0, max_delay=60.0)
-def my_api_call():
-    ...
-```
-
-### Graceful Degradation
-
-Optional skills (OCR, object detection, emotion analysis, translation, web search) are wrapped with `@skill_guard` — if a dependency is missing or a model fails, the skill is skipped and the pipeline continues with a warning instead of crashing.
-
-### Parallel Skill Execution
-
-In the `detailed` workflow, independent skills (OCR, object detection, emotion analysis) run in parallel using a thread pool. Configurable via `max_parallel_skills` in `workflows.yaml` (default: 3).
-
-### Parallel Segment Processing
-
-For long videos (default >5 min), both `brief` and `detailed` workflows can split the video into temporal segments and process them concurrently:
-
-```
-Long Video → split into N segments (by duration)
-                ↓
-    ┌───────────┼───────────┐
-    Seg 0       Seg 1       Seg 2  ...  (parallel workers)
-    │           │           │
-    frames      frames      frames
-    caption     caption     caption
-    OCR         OCR         OCR
-    detection   detection   detection
-    emotion     emotion     emotion
-    └───────────┼───────────┘
-                ↓
-         Merge results (adjust timestamps)
-                ↓
-         Timeline builder (on merged data)
-```
-
-**What stays global:** probe, sufficiency check, timeline, translation, web search.
-**What gets parallelized:** frame sampling, MLLM captioning, OCR, object detection, emotion analysis.
-**What can also be parallelized:** long-audio Whisper ASR via clip split/merge with timestamp adjustment.
-
-Enable in `workflows.yaml`:
-
-```yaml
-detailed:
-  parallel_segments:
-    enabled: true              # activate parallel processing
-    segment_duration: 300      # seconds per segment (5 min)
-    max_workers: 4             # concurrent segment workers
-    min_video_duration: 300    # only for videos longer than this
-    min_segment_duration: 30   # merge tiny tail into previous segment
-  parallel_asr:
-    enabled: true
-    max_workers: 4
-    segment_duration: 240      # seconds per ASR clip
-    min_audio_duration: 300
-    min_segment_duration: 30
-```
-
-**Pluggable segmentation:** The segmentation strategy is abstracted behind a `BaseSegmentor` interface (`agent/core/segment.py`). The default `DurationSegmentor` uses fixed-duration splits via FFmpeg time ranges. Custom segmentors (e.g., DL-based temporal boundary detection with TransNetV2, or semantic segmentation via CLIP) can be registered at runtime:
-
-```python
-from agent.core.segment import BaseSegmentor, register_segmentor
-
-class SceneSegmentor(BaseSegmentor):
-    """DL-based scene boundary detection (e.g., TransNetV2)."""
-    def segment(self, video_path, duration_sec, base_cache_dir):
-        boundaries = my_model.predict(video_path)  # your model here
-        segments = []
-        for i, (start, end) in enumerate(boundaries):
-            segments.append(self._make_segment(i, start, end, base_cache_dir))
-        return self._merge_tiny_tail(segments, duration_sec)
-
-register_segmentor("scene", SceneSegmentor)
-# Then set segmentor_name="scene" in config or split_video_into_segments()
-```
-
-### Streaming Progress Events
-
-An event bus (`agent.core.events`) emits lifecycle events (`skill_start`, `skill_complete`, `skill_error`, `skill_skipped`, `progress`) at each pipeline step.
-
-- **CLI**: Real-time per-skill progress printed to stderr
-- **API**: `POST /analyze/stream` returns Server-Sent Events for live progress monitoring
-
-### Lifecycle Hooks
-
-Shell commands can be triggered at analysis milestones via `hooks.yaml`:
-
-```yaml
-hooks:
-  post_analysis:
-    - command: "curl -X POST $WEBHOOK_URL -d @$RESULT_PATH"
-      async: true
-      timeout: 10
-  on_error:
-    - command: "echo 'Failed: $ERROR_MSG' >> errors.log"
-```
-
-Hook points: `pre_analysis`, `post_analysis`, `post_skill`, `on_error`, `post_highlight`, `post_index`.
-
-### Structured Logging
-
-Pass `--log-format json` to the CLI for machine-readable JSON logs with `video_id`, `skill_name`, `duration_ms`, and `status` fields. Use `WorkflowTracker` for per-workflow skill timing summaries.
-
-## Project Structure
-
-```
-agent/
-  core/
-    schemas.py           # Data models (VideoAsset, FrameSet, Transcript, ContentMetadata, ...)
-    orchestrator.py      # Workflow router with hook triggers
-    segment.py           # Parallel segment processing: BaseSegmentor interface, DurationSegmentor, merge functions
-    segment_worker.py    # Per-segment pipeline worker (frames → caption → OCR/detection/emotion)
-    retry.py             # @retry_with_backoff decorator (exponential backoff + jitter)
-    skill_guard.py       # @skill_guard decorator (graceful degradation)
-    events.py            # EventBus for streaming progress notifications
-    parallel.py          # Parallel execution: run_skills_parallel + run_segments_parallel
-    hooks.py             # Lifecycle hook manager (reads hooks.yaml)
-    logging_config.py    # Structured JSON logging, WorkflowTracker
-  extensions/
-    models/              # vLLM client, direct model loader
-      thinking.py          # Qwen3.5 thinking mode utilities (strip/extract/disable)
-    skills/              # Processing skills
-      subtitle_parser.py   # VTT/SRT parsing into Transcript
-      content_sufficiency.py # Heuristic check: skip visuals if transcript is enough
-      video_download.py    # yt-dlp with metadata + subtitle extraction
-      asr.py               # Whisper ASR
-      vision_caption.py    # MLLM frame/video captioning
-      timeline_builder.py  # LLM-based timeline (uses content metadata)
-      scene_similarity.py  # CLIP-based scene-change detection for streaming
-      stream_memory.py     # Two-level memory manager (local + global)
-      live_stream_processing.py # Real-time stream processor with SlowFast
-      ...                  # OCR, object detection, emotion, FAISS, etc.
-    workflows/           # Pipelines (brief, detailed, index, ask, highlights, report, live)
-    utils/               # Caching, hashing, serving utilities
-      serving.py           # vLLM discovery, launch (Qwen3.5/3-VL), health monitoring
-  config.py              # YAML config loader
-  main.py                # CLI entry point
-server/
-  app.py                 # FastAPI REST server (port 9000)
-scripts/                 # Test and demo scripts
-  run_test_gpu.sh          # Run tests against a GPU-backed endpoint
-  run_test_ascend.sh       # Run tests against an Ascend/NPU-backed endpoint
-  test_all.py              # 17-skill test suite for local videos
-  test_youtube_e2e.py      # YouTube E2E test
-  serving_qwen3_5.sh       # vLLM serving for Qwen3.5-9B (GPU)
-  serving_qwen3vl.sh       # vLLM serving for Qwen3-VL (legacy)
-  serving_qwen2_5vl_ascend.sh # vLLM serving for Qwen2.5-VL on Ascend/NPU
-  serving_qwen3_5_ascend.sh   # vLLM serving for Qwen3.5-9B on Ascend/NPU
-  start_vidify_ascend.sh  # Convenience wrapper for Ascend/NPU serving
-docs/                    # Detailed documentation
-.env                     # Optional local runtime overrides (gitignored)
-.env.example             # Template for .env
-```
-
-## Configuration
-
-### Runtime Environment (`.env`)
-
-For local overrides, configure `.env` (gitignored):
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `LLM_BASE_URL` | OpenAI-compatible chat/completions endpoint | `http://localhost:8000/v1` |
-| `LLM_MODEL` | Default multimodal model name | `qwen3.5-9b` |
-| `EMBED_BASE_URL` | OpenAI-compatible embeddings endpoint | `http://localhost:8000/v1` |
-| `EMBED_MODEL` | Default embedding model name | `qwen-embed` |
-| `CACHE_ROOT` | Runtime cache directory | `./cache` |
-
-### Model & Workflow Config
-
-Optional YAML files in the project root:
-
-- `models.yaml` — model selection, parameters, endpoints
-- `workflows.yaml` — workflow steps, frame limits, feature toggles
-- `hooks.yaml` — lifecycle hooks (shell commands triggered at analysis milestones)
-
-### ASR-First Configuration
-
-These settings in `workflows.yaml` control the ASR-first behavior:
-
-```yaml
-brief:
-  asr_first: true                    # enable ASR-first mode (default: true)
-  min_coverage_ratio: 0.3            # minimum speech-to-video duration ratio
-  min_word_count: 50                 # minimum transcript words to be "sufficient"
-  force_visual: false                # override: always run MLLM captioning
-  prefer_subtitles_over_asr: true    # use embedded subs over Whisper when available
-```
-
-Falls back to built-in defaults if files don't exist. CLI/API parameters always take priority.
-
-See [Configuration Guide](docs/configuration.md).
-
-## Ascend / NPU Deployment
-
-Vidify can run against Ascend-backed vLLM deployments through the same
-OpenAI-compatible API used for GPU serving. The project includes generic helper
-scripts for common Qwen models:
-
-For public docs, keep deployment examples generic. Store provider-specific
-environment names, internal registry URLs, mount paths, and scheduler commands
-in local docs or `.env` files instead of committed README changes.
-
-```bash
-# Qwen3.5-9B
-TP_SIZE=2 bash scripts/serving_qwen3_5_ascend.sh /models/Qwen3.5-9B
-
-# Qwen2.5-VL fallback
-TP_SIZE=2 bash scripts/serving_qwen2_5vl_ascend.sh /models/Qwen2.5-VL-7B-Instruct
-
-# Run tests against an existing Ascend/NPU endpoint
-bash scripts/run_test_ascend.sh --api-base http://localhost:8000/v1 --video media/my_video.mp4
-```
-
-For Qwen3.5 on Ascend, the helper uses `--enforce-eager` and a conservative
-default `MAX_MODEL_LEN=16384`, which are usually safer for NPU memory behavior.
-Adjust `TP_SIZE`, `MAX_MODEL_LEN`, `PORT`, and `ALLOWED_LOCAL_MEDIA_PATH` for
-your hardware and vLLM build.
-
-## Docker
-
-```bash
-# Full stack (app + vLLM)
-docker-compose up
-
-# App only
-docker build -t vidify .
-docker run -p 9000:9000 vidify
-```
-
-## Requirements
-
-- **System:** ffmpeg, yt-dlp, Python 3.11+
-- **GPU:** vLLM-compatible GPU for model serving (or use `--direct-model` for local loading)
-- **Models:** Qwen3.5 (default, recommended), Qwen3-VL (legacy), configurable via `models.yaml`
-- **vLLM:** >= 0.19.0 required for Qwen3.5 (`pip install "vllm>=0.19.0"`)
+See [Testing Guide](docs/testing.md) for focused tests, YouTube E2E validation,
+and hardware-specific notes.
+
+## Repository Layout
+
+| Path | Purpose |
+|------|---------|
+| `agent/core/` | Orchestration, schemas, events, hooks, retries, segmenting, and parallel execution |
+| `agent/extensions/skills/` | Reusable video, audio, retrieval, and analysis units |
+| `agent/extensions/workflows/` | User-facing workflow composition |
+| `agent/extensions/models/` | Model adapters and direct-loading helpers |
+| `server/` | FastAPI app, SSE endpoints, and web routes |
+| `templates/` | Web UI templates |
+| `scripts/` | Serving, validation, and demo helpers |
+| `docs/` | Architecture, workflow, deployment, and API documentation |
+| `cache/` | Runtime artifacts; do not commit generated outputs |
 
 ## Documentation
 
 | Document | Contents |
 |----------|----------|
-| [Architecture](docs/architecture.md) | Data models, data flow, cache structure, model interfaces |
-| [Workflows](docs/workflows.md) | All workflow pipelines in detail |
-| [Skills Reference](docs/skills.md) | All skills — API signatures and descriptions |
-| [API Reference](docs/api.md) | REST endpoints, CLI options, request/response schemas |
-| [Configuration](docs/configuration.md) | YAML configs, vLLM setup, Docker deployment |
-| [Testing Guide](docs/testing.md) | E2E test script, demo scripts, individual tests |
-| [Web Search](docs/web-search.md) | Google/Baidu search integration setup |
+| [Project Overview](docs/overview.md) | ASR-first design, capability map, and processing flow |
+| [Deployment](docs/deployment.md) | vLLM serving, GPU validation, Ascend/NPU helpers, and Docker |
+| [Live Streaming](docs/live-streaming.md) | Webcam/stream architecture, CLI/API usage, and config |
+| [Production Features](docs/production.md) | Retries, graceful degradation, parallelism, progress events, hooks, and logging |
+| [Architecture](docs/architecture.md) | Data models, cache structure, model interfaces, and orchestrator |
+| [Workflows](docs/workflows.md) | Brief, detailed, index, ask, highlights, report, and live modes |
+| [Skills Reference](docs/skills.md) | Skill APIs and responsibilities |
+| [API Reference](docs/api.md) | REST endpoints, CLI arguments, examples, and schemas |
+| [Configuration](docs/configuration.md) | YAML files, environment variables, vLLM setup, and Docker |
+| [Testing Guide](docs/testing.md) | Pytest, local E2E, GPU/Ascend endpoint validation, and YouTube E2E |
+| [Web Search](docs/web-search.md) | Google Custom Search and fallback search setup |

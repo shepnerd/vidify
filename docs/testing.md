@@ -1,147 +1,138 @@
 # Testing Guide
 
-## End-to-End YouTube Test (`scripts/test_youtube_e2e.py`)
+Use fast pytest coverage for normal development and script-based validation when
+a model endpoint, hardware runtime, external downloader, API route, or web UI
+path is part of the touched code.
 
-The primary test script for validating the full video understanding pipeline. It handles model serving discovery/launch, YouTube video download, and runs a suite of tests against the model.
-
-### What it does
-
-1. **Find or launch model serving** — probes known endpoints; if none found, launches a GPU job via `rl.sh` and waits for it to be ready
-2. **Download YouTube video** — uses `yt-dlp` (requires internet on the current node)
-3. **Run 5 video understanding tests** — exercises different model interaction patterns
-
-### Test Suite
-
-| Test | Description |
-|------|-------------|
-| `frames` | Extract frames via FFmpeg, caption each individually via image input |
-| `batch_frames` | Send multiple frames in a single request, expect structured JSON response |
-| `video_caption` | Native video input to Qwen3-VL, segment-by-segment captioning |
-| `qa` | Ask a question with video as context |
-| `multi_turn_qa` | Two-turn conversation: summary followed by a follow-up question |
-
-### Usage
+## Fast Test Suite
 
 ```bash
-# Full auto: detect/launch serving + run all tests
+pytest tests/
+```
+
+Focused tests while iterating:
+
+```bash
+pytest tests/test_core_features.py
+pytest tests/test_parallel_segments.py
+pytest tests/test_parallel_asr.py
+pytest tests/test_mra.py
+pytest tests/test_web_search.py
+```
+
+Prefer mocks for network, model-serving, FFmpeg-heavy work, external processes,
+and hardware-specific paths.
+
+## Local Video Validation
+
+`scripts/test_all.py` runs the 17-skill validation suite against a local video.
+The most predictable path is to pass an existing OpenAI-compatible endpoint.
+
+```bash
+# Use an existing endpoint
+python scripts/test_all.py \
+  --video-path media/taste_in_china_s1e1.mp4 \
+  --api-base http://localhost:8000/v1
+
+# Specific tests only
+python scripts/test_all.py \
+  --video-path media/taste_in_china_s1e1.mp4 \
+  --api-base http://localhost:8000/v1 \
+  --tests frames qa highlights
+```
+
+Tests: `video_probe` | `frame_sample` | `audio_extract` | `asr` | `ocr` |
+`object_detection` | `subtitle_parse` | `metadata_extract` |
+`content_sufficiency` | `needs_visual` | `asr_first_brief` | `frame_caption` |
+`video_caption` | `timeline` | `video_qa` | `highlights` | `video_edit`
+
+## GPU Endpoint Validation
+
+`scripts/run_test_gpu.sh` validates against an already-running GPU-backed
+OpenAI-compatible endpoint. It does not start a managed GPU job.
+
+```bash
+bash scripts/run_test_gpu.sh \
+  --api-base http://localhost:8000/v1 \
+  --video media/my_video.mp4
+
+bash scripts/run_test_gpu.sh \
+  --api-base http://localhost:8000/v1 \
+  --video media/my_video.mp4 \
+  --tests "frame_caption video_qa highlights"
+```
+
+Start vLLM separately with your local process manager or GPU scheduler. See
+[Deployment](deployment.md).
+
+## Ascend / NPU Endpoint Validation
+
+`scripts/run_test_ascend.sh` has the same contract for Ascend/NPU-backed vLLM
+services:
+
+```bash
+bash scripts/run_test_ascend.sh \
+  --api-base http://localhost:8000/v1 \
+  --video media/my_video.mp4
+```
+
+Provider-specific scheduler commands, internal registries, and mount paths should
+stay in local docs or `.env` files.
+
+## YouTube E2E
+
+`scripts/test_youtube_e2e.py` downloads a YouTube video and runs a smaller suite
+of end-to-end checks. It requires internet access on the current node.
+
+```bash
+# Auto-detect or launch serving, then run all tests
 python scripts/test_youtube_e2e.py
 
-# Use an existing serving endpoint
+# Use an existing endpoint
 python scripts/test_youtube_e2e.py --api-base http://localhost:8000/v1
 
-# Custom YouTube video and question
+# Custom video and selected tests
 python scripts/test_youtube_e2e.py \
-    --youtube "https://www.youtube.com/watch?v=VIDEO_ID" \
-    --question "What is being discussed in this video?"
-
-# Launch serving with 4 GPUs
-python scripts/test_youtube_e2e.py --gpu 4
-
-# Run only specific tests
-python scripts/test_youtube_e2e.py --tests frames qa
-
-# Skip auto-launch (fail if no serving found)
-python scripts/test_youtube_e2e.py --skip-serve
+  --youtube "https://www.youtube.com/watch?v=..." \
+  --tests frames qa multi_turn_qa
 ```
 
-### Options
+Tests: `frames` | `batch_frames` | `video_caption` | `qa` | `multi_turn_qa`
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--api-base` | auto-detect | vLLM base URL (e.g. `http://localhost:8000/v1`) |
-| `--youtube` | sample video | YouTube URL to test with |
-| `--question` | general summary | Question for the Q&A test |
-| `--gpu` | 2 | Number of GPUs for serving |
-| `--tp` | same as `--gpu` | Tensor parallel size |
-| `--tests` | all 5 | Which tests to run |
-| `--skip-serve` | false | Don't auto-launch; fail if no service found |
+Results are saved under `cache/`.
 
-### How auto-serving works
+## API and Web UI Validation
 
-When no `--api-base` is specified, the script:
-
-1. Checks for a previously launched serving IP in `cache/.serving/serving_ip.txt`
-2. Probes `http://{previous_ip}:8000/v1`
-3. Probes `http://localhost:8000/v1`
-4. If nothing responds, launches a new GPU job:
-   - Runs `rl.sh -gpu N -d` to start a detached GPU worker
-   - The GPU worker writes its IP to the shared filesystem
-   - The GPU worker starts `vllm serve` with the Qwen3-VL model
-5. Polls until the vLLM `/v1/models` endpoint responds (up to 10 minutes)
-
-This design works because the shared filesystem is accessible from both the internet-connected launcher node and the GPU worker node.
-
-### Output
-
-Results are saved to `cache/test_youtube_e2e_results.json`:
-
-```json
-{
-  "base_url": "http://localhost:8000/v1",
-  "model": "Qwen3-VL-8B-Instruct",
-  "youtube": "https://www.youtube.com/watch?v=...",
-  "video_path": "cache/videos/abc123/source.mp4",
-  "duration": 120.5,
-  "passed": 5,
-  "failed": 0
-}
-```
-
----
-
-## Other Test Scripts
-
-All in `scripts/`. These use the FastAPI server (must be running on port 9000).
-
-### demo.py — Full Pipeline Demo
-
-End-to-end demo: analyze → index → ask → highlights.
+When changing `server/`, request schemas, SSE progress, uploads, or templates,
+run the app and exercise the changed path:
 
 ```bash
-python scripts/demo.py --youtube "https://www.youtube.com/watch?v=..." \
-    --llm-base-url http://localhost:8000/v1 --llm-model qwen3.5-9b
+uvicorn server.app:app --host 0.0.0.0 --port 9000
 ```
 
-### local_video_summary.py — Local Video Analysis
-
-Analyze a local video file without a server.
+Example request:
 
 ```bash
-# Detailed analysis with direct model loading
-python scripts/local_video_summary.py \
-    --video-path /path/to/video.mp4 \
-    --mode detailed \
-    --direct-model --model-path /path/to/model
-
-# Brief analysis using vLLM
-python scripts/local_video_summary.py \
-    --video-path /path/to/video.mp4 \
-    --mode brief --max-frames 16
+curl -X POST http://localhost:9000/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"source_type":"local","uri":"media/example.mp4","mode":"brief"}'
 ```
 
-### Individual Workflow Tests
+## Other Script Helpers
 
-These send requests to the FastAPI server (`http://localhost:9000`):
+| Script | Purpose |
+|--------|---------|
+| `scripts/demo.py` | End-to-end demo: analyze, index, ask, highlights |
+| `scripts/local_video_summary.py` | Local video analysis without the API server |
+| `scripts/test_brief.py` | Brief workflow API validation |
+| `scripts/test_detailed.py` | Detailed workflow API validation |
+| `scripts/test_index.py` | FAISS index API validation |
+| `scripts/test_ask.py` | Q&A API validation |
+| `scripts/test_highlights.py` | Highlight export API validation |
+| `scripts/demo_multi_region_search.py` | Multi-region web-search demo |
 
-| Script | Workflow | Notes |
-|--------|----------|-------|
-| `test_brief.py` | Brief analysis | Standalone |
-| `test_detailed.py` | Detailed analysis | Standalone |
-| `test_index.py` | FAISS indexing | Requires prior analysis |
-| `test_ask.py` | Q&A | Requires prior index |
-| `test_highlights.py` | Highlight export | Requires prior analysis |
-| `test_all.py` | All workflows sequentially | Full pipeline |
+## Manual Validation Notes
 
-### Serving Script
-
-```bash
-# Start vLLM serving on 2 GPUs
-bash scripts/serving_qwen3vl.sh
-```
-
-### Web Search Tests
-
-```bash
-python tests/test_web_search.py          # Test search functionality
-python scripts/demo_multi_region_search.py  # Multi-region demo
-```
+Document skipped heavy validation in PRs with the command someone should run
+later. This is especially important for serving scripts, GPU/NPU startup, vLLM
+model behavior, YouTube downloads, live streams, and full workflow changes.
