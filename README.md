@@ -6,7 +6,14 @@ Vidify is a video understanding agent. Give it a YouTube URL, HTTP video URL, or
 local video and get structured analysis, searchable indexes, Q&A, highlights,
 reports, and live-stream understanding.
 
+![Vidify framework architecture](docs/images/vidify-framework.png)
+
+Vidify is organized as layered entrypoints, a core orchestrator, composable
+workflows and skills, model adapters, and cache-backed outputs.
+
 ## What It Does
+
+![Vidify capability map](docs/images/vidify-capabilities.png)
 
 | Capability | Description |
 |------------|-------------|
@@ -20,6 +27,8 @@ reports, and live-stream understanding.
 Vidify is ASR-first: subtitles and speech usually carry the main story, so visual
 model calls are skipped when transcript coverage is sufficient. See
 [Project Overview](docs/overview.md) for the full processing flow.
+
+![Vidify ASR-first pipeline](docs/images/asr-first-pipeline.png)
 
 ## Quick Start
 

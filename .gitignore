@@ -8,6 +8,8 @@
 *.tif
 *.webp
 *.svg
+!docs/images/
+!docs/images/*.png
 
 # Ignore video files
 *.mp4
