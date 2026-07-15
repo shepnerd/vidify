@@ -5,7 +5,14 @@
 Vidify 是一个视频理解 Agent。输入 YouTube URL、HTTP 视频 URL 或本地视频，
 即可得到结构化分析、可检索索引、问答、精彩片段、报告和实时流理解结果。
 
+![Vidify framework architecture](docs/images/vidify-framework.png)
+
+Vidify 采用分层结构组织：入口层、核心编排器、可组合工作流与 skills、模型适配器，
+以及基于缓存的输出产物。
+
 ## 功能概览
+
+![Vidify capability map](docs/images/vidify-capabilities.png)
 
 | 能力 | 说明 |
 |------|------|
@@ -18,6 +25,45 @@ Vidify 是一个视频理解 Agent。输入 YouTube URL、HTTP 视频 URL 或本
 
 Vidify 采用 ASR-first 设计：字幕和语音通常承载主要信息，因此当转录文本已经足够时，
 会跳过昂贵的视觉模型调用。完整流程见 [Project Overview](docs/overview.md)。
+
+![Vidify ASR-first pipeline](docs/images/asr-first-pipeline.png)
+
+## 2 分钟试用
+
+```bash
+pip install -e .
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode brief
+```
+
+示例输出结构：
+
+```json
+{
+  "video": {
+    "source": {"type": "youtube", "uri": "https://www.youtube.com/watch?v=..."},
+    "duration_sec": 1234.5,
+    "resolution": {"w": 1920, "h": 1080}
+  },
+  "timeline": {
+    "chapters": [
+      {"start": 0.0, "end": 120.3, "title": "...", "summary": "..."}
+    ],
+    "events": [
+      {
+        "start": 33.2,
+        "end": 41.8,
+        "text": "...",
+        "evidence": {"asr_segment_ids": ["seg_12"], "frame_ids": ["f_0032"]}
+      }
+    ]
+  },
+  "asr": {
+    "segments": [
+      {"id": "seg_12", "start": 33.2, "end": 35.1, "text": "..."}
+    ]
+  }
+}
+```
 
 ## 快速开始
 
