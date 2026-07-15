@@ -30,6 +30,43 @@ model calls are skipped when transcript coverage is sufficient. See
 
 ![Vidify ASR-first pipeline](docs/images/asr-first-pipeline.png)
 
+## Try It in 2 Minutes
+
+```bash
+pip install -e .
+python -m agent.main analyze youtube "https://www.youtube.com/watch?v=..." --mode brief
+```
+
+Example output shape:
+
+```json
+{
+  "video": {
+    "source": {"type": "youtube", "uri": "https://www.youtube.com/watch?v=..."},
+    "duration_sec": 1234.5,
+    "resolution": {"w": 1920, "h": 1080}
+  },
+  "timeline": {
+    "chapters": [
+      {"start": 0.0, "end": 120.3, "title": "...", "summary": "..."}
+    ],
+    "events": [
+      {
+        "start": 33.2,
+        "end": 41.8,
+        "text": "...",
+        "evidence": {"asr_segment_ids": ["seg_12"], "frame_ids": ["f_0032"]}
+      }
+    ]
+  },
+  "asr": {
+    "segments": [
+      {"id": "seg_12", "start": 33.2, "end": 35.1, "text": "..."}
+    ]
+  }
+}
+```
+
 ## Quick Start
 
 ### 1. Install
